@@ -106,14 +106,8 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         term1 = (N_b[valid] ** 2) * (sigma_N_f[valid] ** 2)
         term2 = (N_f[valid] ** 2) * (sigma_N_b[valid] ** 2)
 
-        print(denominator_sq[0])
-        print(term1[0])
-
         
-        
-        exit()
-        
-        asymmetry_error[valid] = ((2.0 * alpha) / denominator_sq) * np.sqrt(term1 + term2)
+        asymmetry_error[valid] = (((2.0 * alpha) / denominator_sq) * np.sqrt(term1 + term2))**2
         
         # 3. Calculate Theory Asymmetry
         theory_denom = theory_f + (alpha * theory_b)
