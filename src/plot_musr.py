@@ -61,7 +61,7 @@ def plot_musrfit_data(dat_filepath, output_image, variable_name=None, variable_v
 
 
 def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.0, bkg_b=0.0, err_bkg_f=0.0, err_bkg_b=0.0, variable_name=None, variable_value=None):
-    """Calculates, plots, and exports the combined Asymmetry from two Single Histogram .dat files."""
+    """Calculates, plots, and exports the combined Asymmetry from two Single Histogram .dat files using a stabilized theoretical denominator."""
     try:
         import matplotlib.pyplot as plt
         import numpy as np
@@ -89,28 +89,25 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         theory_f = theory_f_raw - bkg_f
         theory_b = theory_b_raw - bkg_b
 
-        # --- CALCULATIONS ---
-        denominator = N_f + (alpha * N_b)
-        valid = denominator != 0
+        # --- THEORETICAL DENOMINATOR (Stabilization) ---
+        # Prevents division-by-zero noise spikes at late times
+        theory_denom = theory_f + (alpha * theory_b)
+        valid = theory_denom != 0
         
         asymmetry = np.full_like(N_f, np.nan, dtype=float)
         asymmetry_error = np.full_like(N_f, np.nan, dtype=float)
         theory_asym = np.full_like(N_f, np.nan, dtype=float)
         
-        # 1. Calculate Experimental Asymmetry
-        asymmetry[valid] = (N_f[valid] - (alpha * N_b[valid])) / denominator[valid]
+        # 1. Calculate Experimental Asymmetry (Stabilized)
+        asymmetry[valid] = (N_f[valid] - (alpha * N_b[valid])) / theory_denom[valid]
         
-        # 2. Error propagation (STRICTLY STATISTICAL - Background error removed from bin-by-bin scatter)
-        denominator_sq = denominator[valid] ** 2
-        term1 = (N_b[valid] ** 2) * (sigma_N_f[valid] ** 2)
-        term2 = (N_f[valid] ** 2) * (sigma_N_b[valid] ** 2)
-        
-        asymmetry_error[valid] = (2.0 * alpha) / denominator_sq * np.sqrt(term1 + term2)
+        # 2. Error propagation (Stabilized)
+        # Smoothly expanding error envelope driven purely by counting statistics
+        variance_sum = (sigma_N_f[valid] ** 2) + ((alpha ** 2) * (sigma_N_b[valid] ** 2))
+        asymmetry_error[valid] = np.sqrt(variance_sum) / np.abs(theory_denom[valid])
         
         # 3. Calculate Theory Asymmetry
-        theory_denom = theory_f + (alpha * theory_b)
-        valid_theory = theory_denom != 0
-        theory_asym[valid_theory] = (theory_f[valid_theory] - (alpha * theory_b[valid_theory])) / theory_denom[valid_theory]
+        theory_asym[valid] = (theory_f[valid] - (alpha * theory_b[valid])) / theory_denom[valid]
 
         # --- EXPORT TO .DAT FILE ---
         output_dat = output_image.replace('.pdf', '.dat')
@@ -120,7 +117,6 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
             f.write(f"% number of data values = {valid_count}\n")
             f.write("% time (us), value, error, theory\n")
             for t, v, e, th in zip(time_us[valid], asymmetry[valid], asymmetry_error[valid], theory_asym[valid]):
-                # Fill missing theory with data value or 0 to keep columns aligned if theory fails
                 th_val = th if not np.isnan(th) else 0.0
                 f.write(f"{t:.5f}, {v:.6f}, {e:.6f}, {th_val:.6f}\n")
                 
