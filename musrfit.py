@@ -289,6 +289,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
             for i, dat_file in enumerate(dat_files):
                 pdf_name = dat_file.replace(".dat", ".pdf")
                 file_idx = i // num_detectors
+                
                 det_name = detector_names[i % num_detectors] if fittype == 0 else None
                 
                 var_val = None
@@ -300,12 +301,16 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                             break
                             
                 plot_musrfit_data(
-                    dat_file, pdf_name, variable_name=var_name, 
-                    variable_value=var_val, fittype=fittype, detector_name=det_name
+                    dat_file, 
+                    pdf_name, 
+                    variable_name=var_name, 
+                    variable_value=var_val, 
+                    fittype=fittype, 
+                    detector_name=det_name
                 )
 
             # --- NEW: ASYMMETRY RECONSTRUCTION (Single Histogram Mode Only) ---
-            if fittype == 0 and num_detectors == 2:
+            if fittype == 0 and num_detectors >= 2:
                 print(">> Reconstructing Asymmetry from Single Histogram data...")
                 
                 # 1. Fallback: Check global parameters for a shared alpha
@@ -319,23 +324,46 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                                     global_alpha = float(row["Value"])
                                     break
                     except Exception as e:
-                        print(f"   [!] Could not parse global alpha: {e}")
+                        pass
 
-                # 2. Primary: Check file-level parameters for alpha
+                # 2. Look up Alpha overrides
                 alpha_csv = glob.glob("file_parameter_*alpha*.csv") + glob.glob("file_parameter_*Alpha*.csv")
                 alphas_by_file = {}
                 if alpha_csv:
                     try:
                         with open(alpha_csv[0], 'r') as f:
-                            reader = csv.DictReader(f)
-                            for row in reader:
-                                file_idx = int(row["File_Index"]) - 1
-                                alphas_by_file[file_idx] = float(row["Value"])
-                    except Exception as e:
-                        print(f"   [!] Could not parse file-level alpha values: {e}")
+                            for row in csv.DictReader(f):
+                                alphas_by_file[int(row["File_Index"]) - 1] = float(row["Value"])
+                    except Exception: pass
 
-                # Process in pairs (Assuming index 0=Forward, 1=Backward for each file)
-                for file_idx in range(len(data_files)):
+                # 3. Look up Background constants AND their errors
+                bkg_csvs = glob.glob("local_parameter_*backgr*.csv") + glob.glob("local_parameter_*bkg*.csv")
+                bkg_data = {}  # Format: { filename: { "forward": (val, err), "backward": (val, err) } }
+                if bkg_csvs:
+                    try:
+                        with open(bkg_csvs[0], 'r') as f:
+                            for row in csv.DictReader(f):
+                                fname = row["File_Name"]
+                                det = row["Detector"].lower()
+                                val = float(row["Value"])
+                                
+                                # Favor Pos_Error, fallback to Step/Error if MINOS didn't run
+                                err = 0.0
+                                try:
+                                    if row["Pos_Error"].lower() != "none":
+                                        err = float(row["Pos_Error"])
+                                    else:
+                                        err = float(row["Step/Error"])
+                                except ValueError:
+                                    pass
+                                    
+                                if fname not in bkg_data: bkg_data[fname] = {}
+                                bkg_data[fname][det] = (val, err)
+                    except Exception as e:
+                        print(f"   [!] Could not parse background values: {e}")
+
+                # 4. Process in pairs
+                for file_idx, file_name in enumerate(data_files):
                     f_idx = file_idx * num_detectors
                     b_idx = file_idx * num_detectors + 1
                     
@@ -345,18 +373,24 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                         
                         var_val = None
                         if mapping:
-                            filename = data_files[file_idx]
                             for suffix, s_val in mapping.items():
-                                if suffix in filename:
+                                if suffix in file_name:
                                     var_val = s_val
                                     break
                         
-                        # Grab file-level alpha -> fallback to global alpha -> defaults to 1.0
                         alpha_val = alphas_by_file.get(file_idx, global_alpha)
+                        
+                        # Grab respective backgrounds and errors, defaulting to 0.0 if not found
+                        file_bkgs = bkg_data.get(file_name, {})
+                        b_f, err_b_f = file_bkgs.get("forward", (0.0, 0.0))
+                        b_b, err_b_b = file_bkgs.get("backward", (0.0, 0.0))
                         
                         out_pdf = f"{base_name}_Reconstructed_File{file_idx+1}.pdf"
                         plot_reconstructed_asymmetry(
-                            dat_f, dat_b, out_pdf, alpha=alpha_val, 
+                            dat_f, dat_b, out_pdf, 
+                            alpha=alpha_val, 
+                            bkg_f=b_f, bkg_b=b_b,
+                            err_bkg_f=err_b_f, err_bkg_b=err_b_b,
                             variable_name=var_name, variable_value=var_val
                         )
 

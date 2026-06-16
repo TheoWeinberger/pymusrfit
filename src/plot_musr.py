@@ -60,10 +60,8 @@ def plot_musrfit_data(dat_filepath, output_image, variable_name=None, variable_v
         print(f"[!] Failed to plot {dat_filepath}: {e}")
 
 
-# Add to plot_musr.py
-
-def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, variable_name=None, variable_value=None):
-    """Calculates and plots the combined Asymmetry from two Single Histogram .dat files."""
+def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.0, bkg_b=0.0, err_bkg_f=0.0, err_bkg_b=0.0, variable_name=None, variable_value=None):
+    """Calculates and plots the combined Asymmetry from two Single Histogram .dat files with background subtraction and full error propagation."""
     try:
         import matplotlib.pyplot as plt
         import numpy as np
@@ -72,23 +70,27 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, variable
         return
 
     try:
-        # Load Forward Data (musrfit ASCII dump format)
+        # Load Forward Data
         data_f = np.loadtxt(dat_f, delimiter=',', comments='%')
         time_us = data_f[:, 0]
-        N_f = data_f[:, 1]
+        N_f_raw = data_f[:, 1]
         sigma_N_f = data_f[:, 2]
-        theory_f = data_f[:, 3]
+        theory_f_raw = data_f[:, 3]
 
         # Load Backward Data
         data_b = np.loadtxt(dat_b, delimiter=',', comments='%')
-        N_b = data_b[:, 1]
+        N_b_raw = data_b[:, 1]
         sigma_N_b = data_b[:, 2]
-        theory_b = data_b[:, 3]
+        theory_b_raw = data_b[:, 3]
 
-        # --- CALCULATIONS (Using strict masking logic) ---
+        # --- SUBTRACT BACKGROUND ---
+        N_f = N_f_raw - bkg_f
+        N_b = N_b_raw - bkg_b
+        theory_f = theory_f_raw - bkg_f
+        theory_b = theory_b_raw - bkg_b
+
+        # --- CALCULATIONS ---
         denominator = N_f + (alpha * N_b)
-        
-        # Avoid division by zero
         valid = denominator != 0
         
         asymmetry = np.full_like(N_f, np.nan, dtype=float)
@@ -98,10 +100,14 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, variable
         # 1. Calculate Experimental Asymmetry
         asymmetry[valid] = (N_f[valid] - (alpha * N_b[valid])) / denominator[valid]
         
-        # 2. Error propagation 
+        # 2. Error propagation (Adding background error in quadrature)
         denominator_sq = denominator[valid] ** 2
-        term1 = (N_b[valid] ** 2) * (sigma_N_f[valid] ** 2)
-        term2 = (N_f[valid] ** 2) * (sigma_N_b[valid] ** 2)
+        
+        var_f = (sigma_N_f[valid] ** 2) + (err_bkg_f ** 2)
+        var_b = (sigma_N_b[valid] ** 2) + (err_bkg_b ** 2)
+        
+        term1 = (N_b[valid] ** 2) * var_f
+        term2 = (N_f[valid] ** 2) * var_b
         
         asymmetry_error[valid] = (2.0 * alpha) / denominator_sq * np.sqrt(term1 + term2)
         
@@ -116,7 +122,6 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, variable
         ax.tick_params('both', which='major', direction='in', length=5, width=1.2, bottom=True, top=True, left=True, right=True)
         ax.tick_params('both', which='minor', direction='in', length=3, width=1, bottom=True, top=True, left=True, right=True)
         
-        # Extract valid points for plotting
         valid_mask = ~np.isnan(asymmetry)
         
         ax.errorbar(time_us[valid_mask], asymmetry[valid_mask], yerr=asymmetry_error[valid_mask], 
@@ -124,11 +129,10 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, variable
                     
         ax.plot(time_us[valid_theory], theory_asym[valid_theory], '-', color='red', linewidth=2, label='Reconstructed Theory')
         
-        # Add reference line at A=0
         ax.axhline(0, color='blue', linestyle='--', linewidth=1, alpha=0.5, label='A = 0')
         
         ax.set_xlabel(r'Time ($\mu s$)', fontsize=10)
-        ax.set_ylabel(r'Asymmetry $A(t) = (N_f - \alpha N_b) / (N_f + \alpha N_b)$', fontsize=10)
+        ax.set_ylabel(r'Asymmetry $A(t)$', fontsize=10)
         
         title_text = f'Reconstructed Asymmetry (alpha={alpha:.3f})'
         if variable_name and variable_value is not None:
@@ -142,11 +146,9 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, variable
         plt.savefig(output_image, dpi=150)
         plt.close()
         
-        print(f"   -> Saved reconstructed asymmetry plot to '{output_image}'")
-        
     except Exception as e:
         print(f"[!] Failed to reconstruct asymmetry for {dat_f} / {dat_b}: {e}")
-
+        
 
 def plot_parameters_vs_variable(params, var_name):
     """Generates physical dependency plots for each distinct fit parameter as a function of the external variable."""
