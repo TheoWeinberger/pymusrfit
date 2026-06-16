@@ -168,21 +168,18 @@ class MsrGenerator:
                     self.msr_lines.append(f"RUN {file} {facility} {run_format} (name beamline institute data-file-format)")
                     self.msr_lines.append("fittype         0         (single histogram fit)")
                     
-                    # 1. Inject norm parameter mapping
                     if "norm" in self.local_registry:
                         norm_param_num = self.local_registry["norm"][current_run_idx]
                         self.msr_lines.append(f"norm            {norm_param_num}")
                     else:
                         raise KeyError("Missing required local parameter 'norm' for fittype 0.")
                         
-                    # 2. Inject backgr.fit parameter mapping
                     if "backgr" in self.local_registry:
                         backgr_param_num = self.local_registry["backgr"][current_run_idx]
                         self.msr_lines.append(f"backgr.fit      {backgr_param_num}")
                     else:
                         raise KeyError("Missing required local parameter 'backgr' for fittype 0.")
                     
-                    # 3. Compile remaining theory map tokens sequentially
                     map_indices = []
                     for var_name in self.map_token_sequence:
                         if var_name in self.local_registry:
@@ -197,7 +194,6 @@ class MsrGenerator:
                     self.msr_lines.append("map             " + " ".join(map_indices))
                     self.msr_lines.append(f"forward         {det_val}")
                     
-                    # 4. Extract time formatting (excluding manual background ranges)
                     data_start, data_end = time_cfg.get(f'data_range_{det_name}', time_cfg.get('data_range', [0,0]))
                     t0_val = time_cfg.get(f't0_{det_name}', time_cfg.get('t0', 0))
                     
@@ -210,14 +206,46 @@ class MsrGenerator:
                     self.msr_lines.append(f"packing         {packing}")
                     self.msr_lines.append("")
                     current_run_idx += 1
+                    
+        # Track active total runs for plot command sequencing
+        self.total_run_count = current_run_idx
 
     def build_footer(self):
         self.msr_lines.append("COMMANDS")
+        # Injects scale parameters only when parsing single histogram setups
+        if self.config.get("fittype", 2) == 0:
+            self.msr_lines.append("SCALE_N0_BKG TRUE")
         self.msr_lines.append("MINIMIZE")
         self.msr_lines.append("MINOS")
         self.msr_lines.append("#HESSE")
         self.msr_lines.append("SAVE")
         self.msr_lines.append("")
+
+    def build_plot(self):
+        plot_config = self.config.get("plot", {})
+        fittype = self.config.get("fittype", 2)
+        
+        # Build dynamic sequence list based on processed histograms (e.g. "1 2 3 4")
+        if getattr(self, 'total_run_count', 0) > 0:
+            run_sequence = " ".join(str(r) for r in range(1, self.total_run_count + 1))
+        else:
+            run_sequence = plot_config.get('runs', '1')
+            
+        if fittype == 0:
+            self.msr_lines.append("PLOT 0   (single histo plot)")
+            self.msr_lines.append("lifetimecorrection")
+            self.msr_lines.append(f"runs     {run_sequence}")
+            
+            # Fallback to defaults you requested if missing from plot configurations
+            rng = plot_config.get("range", [0, 9, -0.3, 0.3])
+            self.msr_lines.append(f"range    {rng[0]}   {rng[1]}   {rng[2]}   {rng[3]}")
+            self.msr_lines.append("")
+        else:
+            self.msr_lines.append("PLOT 2   (asymmetry plot)")
+            self.msr_lines.append(f"runs     {run_sequence}")
+            rng = plot_config.get("range", [0, 8, 0, 0.25])
+            self.msr_lines.append(f"range    {rng[0]}   {rng[1]}   {rng[2]}   {rng[3]}")
+            self.msr_lines.append("")
 
     def build_fourier(self):
         fourier_config = self.config.get("fourier", {})
@@ -229,15 +257,6 @@ class MsrGenerator:
         self.msr_lines.append(f"plot             {fourier_config.get('plot', 'POWER')}")
         self.msr_lines.append(f"phase            {fourier_config.get('phase', 8)}")
         self.msr_lines.append(f"range            {fourier_config.get('range', [0, 200])[0]}    {fourier_config.get('range', [0, 200])[1]}")
-        self.msr_lines.append("")
-
-    def build_plot(self):
-        plot_config = self.config.get("plot", {})
-        if not plot_config: return
-        fittype = self.config.get("fittype", 2)
-        self.msr_lines.append(f"PLOT {fittype}   ({'asymmetry' if fittype == 2 else 'single histo'} plot)")
-        self.msr_lines.append(f"runs     {plot_config.get('runs', '1')}")
-        self.msr_lines.append(f"range    {plot_config.get('range', [0, 8, 0, 0.25])[0]}   {plot_config.get('range', [0, 8, 0, 0.25])[1]}   {plot_config.get('range', [0, 8, 0, 0.25])[2]}   {plot_config.get('range', [0, 8, 0, 0.25])[3]}")
         self.msr_lines.append("")
 
     def build_statistic(self):
