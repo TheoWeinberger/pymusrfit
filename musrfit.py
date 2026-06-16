@@ -8,10 +8,8 @@ import re
 import argparse
 import subprocess
 
-# --- FIX 1: Dynamically compute the script's root directory ---
+# Dynamically compute the script's root directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Add the script directory to the Python path so "src" imports work anywhere
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
@@ -76,17 +74,23 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
         return
 
     global_rows = []
+    file_groups = {}
     local_groups = {}
+    
+    # Track precisely which variables should be passed to the dependency plotter
+    params_to_plot = []
 
     for p in all_params:
         name = p["Name"]
-        match_run = re.search(r"^(.*)_Run(\d+)(?:_(.*))?$", name)
+        # Match standard local params (e.g., param_Run1) or detector-split params (param_Run1_forward)
+        match_run = re.search(r"^(.*)_Run(\d+)(?:_(.+))?$", name)
+        # Match file-shared params (e.g., param_File1)
         match_file = re.search(r"^(.*)_File(\d+)$", name)
         
         if match_run:
             base_param_name = match_run.group(1)
             run_idx = int(match_run.group(2)) - 1
-            det_name = match_run.group(3) if match_run.group(3) else ""
+            det_name = match_run.group(3) if match_run.group(3) else "Combined"
             file_idx = run_idx // num_detectors if fittype == 0 else run_idx
             
             var_val = "Unknown"
@@ -99,7 +103,7 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
 
             local_row = {
                 "Run_Index": run_idx + 1,
-                "Detector": det_name if det_name else "Combined",
+                "Detector": det_name,
                 "File_Name": data_files[file_idx] if 0 <= file_idx < len(data_files) else "Unknown",
                 var_name: var_val,
                 "Value": p["Value"],
@@ -114,6 +118,10 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
             
             p["BaseName"] = base_param_name
             p["Variable_Value"] = var_val
+            
+            # Plot local parameters ONLY if we are doing an Asymmetry fit
+            if fittype == 2:
+                params_to_plot.append(p)
             
         elif match_file:
             base_param_name = match_file.group(1)
@@ -127,9 +135,8 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
                         var_val = s_val
                         break
 
-            local_row = {
-                "Run_Index": f"File_{file_idx + 1}",
-                "Detector": "All",
+            file_row = {
+                "File_Index": file_idx + 1,
                 "File_Name": data_files[file_idx] if 0 <= file_idx < len(data_files) else "Unknown",
                 var_name: var_val,
                 "Value": p["Value"],
@@ -138,27 +145,47 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
                 "Bound_Low": p["Bound_Low"],
                 "Bound_High": p["Bound_High"]
             }
-            if base_param_name not in local_groups:
-                local_groups[base_param_name] = []
-            local_groups[base_param_name].append(local_row)
+            if base_param_name not in file_groups:
+                file_groups[base_param_name] = []
+            file_groups[base_param_name].append(file_row)
             
             p["BaseName"] = base_param_name
             p["Variable_Value"] = var_val
+            
+            # Plot file parameters ONLY if we are doing a Single Histogram fit
+            if fittype == 0:
+                params_to_plot.append(p)
+                
         else:
             global_rows.append(p)
             p["BaseName"] = p["Name"]
             p["Variable_Value"] = "Global"
 
-    global_csv_path = "global_parameters.csv"
-    with open(global_csv_path, 'w', newline='') as csvfile:
-        fieldnames = ["No", "Name", "Value", "Step/Error", "Pos_Error", "Bound_Low", "Bound_High"]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in global_rows:
-            filtered_row = {k: row[k] for k in fieldnames if k in row}
-            writer.writerow(filtered_row)
-    print(f">> Exported global fit parameters to '{global_csv_path}'")
+    # 1. Export Global Parameters
+    if global_rows:
+        global_csv_path = "global_parameters.csv"
+        with open(global_csv_path, 'w', newline='') as csvfile:
+            fieldnames = ["No", "Name", "Value", "Step/Error", "Pos_Error", "Bound_Low", "Bound_High"]
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in global_rows:
+                filtered_row = {k: row[k] for k in fieldnames if k in row}
+                writer.writerow(filtered_row)
+        print(f">> Exported global fit parameters to '{global_csv_path}'")
 
+    # 2. Export File-Shared Parameters (For Single Histogram Mode)
+    for base_name, rows in file_groups.items():
+        file_csv_path = f"file_parameter_{base_name}.csv"
+        with open(file_csv_path, 'w', newline='') as csvfile:
+            fieldnames = ["File_Index", "File_Name", var_name, "Value", "Step/Error", "Pos_Error", "Bound_Low", "Bound_High"]
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                filtered_row = {k: row[k] for k in fieldnames if k in row}
+                writer.writerow(filtered_row)
+        print(f">> Exported file-level parameter tracking sheet to '{file_csv_path}'")
+
+    # 3. Export Local Run/Detector Parameters
     for base_name, rows in local_groups.items():
         local_csv_path = f"local_parameter_{base_name}.csv"
         with open(local_csv_path, 'w', newline='') as csvfile:
@@ -168,14 +195,14 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
             for row in rows:
                 filtered_row = {k: row[k] for k in fieldnames if k in row}
                 writer.writerow(filtered_row)
-        print(f">> Exported tracking sheet to '{local_csv_path}'")
+        print(f">> Exported local parameter tracking sheet to '{local_csv_path}'")
 
-    if mapping:
-        plot_parameters_vs_variable(all_params, var_name)
+    # 4. Trigger Dependency Plotter (Using the filtered parameter array)
+    if mapping and params_to_plot:
+        plot_parameters_vs_variable(params_to_plot, var_name)
 
 
 def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.msr", do_plot=False):
-    # Perform cleanup of old results
     cleanup_previous_runs()
 
     if config_file == "config.json" and not os.path.exists(config_file):
