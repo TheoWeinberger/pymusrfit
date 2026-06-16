@@ -92,7 +92,9 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
             base_param_name = match_run.group(1)
             run_idx = int(match_run.group(2)) - 1
             det_name = match_run.group(3) if match_run.group(3) else "Combined"
-            file_idx = run_idx // num_detectors if fittype == 0 else run_idx
+            
+            # --- FIX: The "Run" number exactly matches the File index. Do not divide! ---
+            file_idx = run_idx
             
             var_val = "Unknown"
             if 0 <= file_idx < len(data_files):
