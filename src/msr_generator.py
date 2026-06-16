@@ -17,14 +17,14 @@ class MsrGenerator:
 
     def build_parameters(self):
         self.msr_lines.append("FITPARAMETER")
-        self.msr_lines.append("#      Nr. Name        Value     Step      Pos_Error  Boundaries")
+        self.msr_lines.append("#      Nr. Name                        Value     Step      Pos_Error  Boundaries")
         
         # Scale instrument tracking attributes
-        alpha_cfg = self.config.get("alpha", {"value": 1.0, "step": 0.0, "fit": False})
+        alpha_cfg = self.config["alpha"]
         step = alpha_cfg["step"] if alpha_cfg.get("fit", False) else 0.0
         pos_err = alpha_cfg.get("pos_err", "none")
         boundaries = " ".join(str(b) for b in alpha_cfg.get("boundaries", []))
-        self.msr_lines.append(f"        {self.param_counter} alpha       {alpha_cfg['value']}      {step}       {pos_err}        {boundaries}")
+        self.msr_lines.append(f"        {self.param_counter} alpha                       {alpha_cfg['value']}      {step}       {pos_err}        {boundaries}")
         self.alpha_param_num = self.param_counter
         self.param_counter += 1
         
@@ -32,40 +32,52 @@ class MsrGenerator:
         for p in self.config.get("global_params", []):
             pos_err = p.get("pos_err", "none")
             boundaries = " ".join(str(b) for b in p.get("boundaries", []))
-            self.msr_lines.append(f"        {self.param_counter} {p['name']} {p['value']} {p['step']}       {pos_err}        {boundaries}")
+            self.msr_lines.append(f"        {self.param_counter} {p['name']:27} {p['value']} {p['step']}       {pos_err}        {boundaries}")
             self.global_registry[p['name']] = self.param_counter
             self.param_counter += 1
             
-        # Allocate and register File-level elements (shared across detector runs for the same file)
-        for p in self.config.get("file_params", []):
-            self.file_registry[p['name']] = []
-            
-        for i, file in enumerate(self.data_files):
-            for p in self.config.get("file_params", []):
-                pos_err = p.get("pos_err", "none")
-                boundaries = " ".join(str(b) for b in p.get("boundaries", []))
-                self.msr_lines.append(f"        {self.param_counter} {p['name']}_File{i+1} {p['value']} {p['step']}       {pos_err}        {boundaries}")
-                self.file_registry[p['name']].append(self.param_counter)
-                self.param_counter += 1
-
-        # Allocate references for individual Local instances (unique per run block)
+        # Allocate references for individual Local instances
         for p in self.config.get("local_params", []):
             self.local_registry[p['name']] = []
             
         fittype = self.config.get("fittype", 2)
         detectors_dict = self.config.get("detectors", {})
-        num_detectors = len(detectors_dict) if fittype == 0 else 1
+        separator_line = "#" * 63
         
-        run_counter = 1
-        for i, file in enumerate(self.data_files):
-            for d in range(num_detectors):
+        if fittype == 2:
+            # Traditional flat index per run file for asymmetry fitting
+            for i, file in enumerate(self.data_files):
+                # Add hash separator between different runs
+                self.msr_lines.append(separator_line)
+                self.msr_lines.append(f"# Run {i+1} local parameters")
+                
                 for p in self.config.get("local_params", []):
                     pos_err = p.get("pos_err", "none")
                     boundaries = " ".join(str(b) for b in p.get("boundaries", []))
-                    self.msr_lines.append(f"        {self.param_counter} {p['name']}_Run{run_counter} {p['value']} {p['step']}       {pos_err}        {boundaries}")
+                    param_name = f"{p['name']}_Run{i+1}"
+                    self.msr_lines.append(f"        {self.param_counter} {param_name:27} {p['value']} {p['step']}       {pos_err}        {boundaries}")
                     self.local_registry[p['name']].append(self.param_counter)
                     self.param_counter += 1
-                run_counter += 1
+                    
+        elif fittype == 0:
+            # Expanded name architecture tracking both Run Number and Detector channel
+            for i, file in enumerate(self.data_files):
+                # Add hash separator between different runs
+                self.msr_lines.append(separator_line)
+                self.msr_lines.append(f"# Run {i+1} local parameters")
+                
+                for det_name, det_val in detectors_dict.items():
+                    for p in self.config.get("local_params", []):
+                        pos_err = p.get("pos_err", "none")
+                        boundaries = " ".join(str(b) for b in p.get("boundaries", []))
+                        
+                        # Generates names like: norm_Run1_forward or backgr_Run1_backward
+                        param_name = f"{p['name']}_Run{i+1}_{det_name}"
+                        
+                        self.msr_lines.append(f"        {self.param_counter} {param_name:27} {p['value']} {p['step']}       {pos_err}        {boundaries}")
+                        self.local_registry[p['name']].append(self.param_counter)
+                        self.param_counter += 1
+                        
         self.msr_lines.append("")
 
     def build_theory(self):
@@ -110,7 +122,7 @@ class MsrGenerator:
                 }
             
             if fittype == 2:
-                # Standard Asymmetry Fit
+                # Standard Asymmetry Fit Block
                 fwd = detectors_dict.get("forward", 1)
                 bwd = detectors_dict.get("backward", 2)
                 
@@ -151,28 +163,26 @@ class MsrGenerator:
                 current_run_idx += 1
                 
             elif fittype == 0:
-                print("hi")
-                exit()
-                # Single Histogram Fit
+                # Single Histogram Fit Block
                 for det_name, det_val in detectors_dict.items():
                     self.msr_lines.append(f"RUN {file} {facility} {run_format} (name beamline institute data-file-format)")
                     self.msr_lines.append("fittype         0         (single histogram fit)")
                     
-                    # 1. Inject norm parameter ID
+                    # 1. Inject norm parameter mapping
                     if "norm" in self.local_registry:
                         norm_param_num = self.local_registry["norm"][current_run_idx]
                         self.msr_lines.append(f"norm            {norm_param_num}")
                     else:
                         raise KeyError("Missing required local parameter 'norm' for fittype 0.")
                         
-                    # 2. Inject backgr.fit parameter ID
+                    # 2. Inject backgr.fit parameter mapping
                     if "backgr" in self.local_registry:
                         backgr_param_num = self.local_registry["backgr"][current_run_idx]
                         self.msr_lines.append(f"backgr.fit      {backgr_param_num}")
                     else:
                         raise KeyError("Missing required local parameter 'backgr' for fittype 0.")
                     
-                    # 3. Compile map indices sequence
+                    # 3. Compile remaining theory map tokens sequentially
                     map_indices = []
                     for var_name in self.map_token_sequence:
                         if var_name in self.local_registry:
@@ -185,11 +195,9 @@ class MsrGenerator:
                             raise KeyError(f"Configuration Reference Mismatch: '{var_name}' is unmapped.")
                             
                     self.msr_lines.append("map             " + " ".join(map_indices))
-                    
-                    # 4. Inject detector target ID
                     self.msr_lines.append(f"forward         {det_val}")
                     
-                    # 5. Extract bounds (omitting background range line entirely)
+                    # 4. Extract time formatting (excluding manual background ranges)
                     data_start, data_end = time_cfg.get(f'data_range_{det_name}', time_cfg.get('data_range', [0,0]))
                     t0_val = time_cfg.get(f't0_{det_name}', time_cfg.get('t0', 0))
                     
