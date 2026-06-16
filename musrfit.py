@@ -302,10 +302,23 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                 )
 
             # --- NEW: ASYMMETRY RECONSTRUCTION (Single Histogram Mode Only) ---
-            if fittype == 0 and num_detectors >= 2:
+            if fittype == 0 and num_detectors == 2:
                 print(">> Reconstructing Asymmetry from Single Histogram data...")
                 
-                # We need to read the generated file_parameter_alpha.csv to fetch alpha values
+                # 1. Fallback: Check global parameters for a shared alpha
+                global_alpha = 1.0
+                if os.path.exists("global_parameters.csv"):
+                    try:
+                        with open("global_parameters.csv", 'r') as f:
+                            reader = csv.DictReader(f)
+                            for row in reader:
+                                if "alpha" in row["Name"].lower():
+                                    global_alpha = float(row["Value"])
+                                    break
+                    except Exception as e:
+                        print(f"   [!] Could not parse global alpha: {e}")
+
+                # 2. Primary: Check file-level parameters for alpha
                 alpha_csv = glob.glob("file_parameter_*alpha*.csv") + glob.glob("file_parameter_*Alpha*.csv")
                 alphas_by_file = {}
                 if alpha_csv:
@@ -316,7 +329,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                                 file_idx = int(row["File_Index"]) - 1
                                 alphas_by_file[file_idx] = float(row["Value"])
                     except Exception as e:
-                        print(f"   [!] Could not parse alpha values: {e}")
+                        print(f"   [!] Could not parse file-level alpha values: {e}")
 
                 # Process in pairs (Assuming index 0=Forward, 1=Backward for each file)
                 for file_idx in range(len(data_files)):
@@ -335,8 +348,8 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                                     var_val = s_val
                                     break
                         
-                        # Grab alpha if it exists, otherwise default to 1.0
-                        alpha_val = alphas_by_file.get(file_idx, 1.0)
+                        # Grab file-level alpha -> fallback to global alpha -> defaults to 1.0
+                        alpha_val = alphas_by_file.get(file_idx, global_alpha)
                         
                         out_pdf = f"{base_name}_Reconstructed_File{file_idx+1}.pdf"
                         plot_reconstructed_asymmetry(
