@@ -15,7 +15,7 @@ if SCRIPT_DIR not in sys.path:
 from src.cxx_plugin_generator import CxxPluginGenerator
 from src.msr_generator import MsrGenerator
 from src.root_metadata_extractor import extract_root_metadata
-from src.plot_musr import plot_musrfit_data, plot_parameters_vs_variable
+from src.plot_musr import plot_musrfit_data, plot_parameters_vs_variable, plot_reconstructed_asymmetry
 
 def cleanup_previous_runs():
     """Removes previously generated data files to ensure a clean run environment."""
@@ -282,10 +282,10 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
             detector_names = list(detectors_dict.keys())
             num_detectors = len(detector_names) if fittype == 0 else 1
             
+            # --- STANDARD PLOTTING (N(t) or standard Asymmetry) ---
             for i, dat_file in enumerate(dat_files):
                 pdf_name = dat_file.replace(".dat", ".pdf")
                 file_idx = i // num_detectors
-                
                 det_name = detector_names[i % num_detectors] if fittype == 0 else None
                 
                 var_val = None
@@ -297,14 +297,52 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                             break
                             
                 plot_musrfit_data(
-                    dat_file, 
-                    pdf_name, 
-                    variable_name=var_name, 
-                    variable_value=var_val, 
-                    fittype=fittype, 
-                    detector_name=det_name
+                    dat_file, pdf_name, variable_name=var_name, 
+                    variable_value=var_val, fittype=fittype, detector_name=det_name
                 )
 
+            # --- NEW: ASYMMETRY RECONSTRUCTION (Single Histogram Mode Only) ---
+            if fittype == 0 and num_detectors >= 2:
+                print(">> Reconstructing Asymmetry from Single Histogram data...")
+                
+                # We need to read the generated file_parameter_alpha.csv to fetch alpha values
+                alpha_csv = glob.glob("file_parameter_*alpha*.csv") + glob.glob("file_parameter_*Alpha*.csv")
+                alphas_by_file = {}
+                if alpha_csv:
+                    try:
+                        with open(alpha_csv[0], 'r') as f:
+                            reader = csv.DictReader(f)
+                            for row in reader:
+                                file_idx = int(row["File_Index"]) - 1
+                                alphas_by_file[file_idx] = float(row["Value"])
+                    except Exception as e:
+                        print(f"   [!] Could not parse alpha values: {e}")
+
+                # Process in pairs (Assuming index 0=Forward, 1=Backward for each file)
+                for file_idx in range(len(data_files)):
+                    f_idx = file_idx * num_detectors
+                    b_idx = file_idx * num_detectors + 1
+                    
+                    if b_idx < len(dat_files):
+                        dat_f = dat_files[f_idx]
+                        dat_b = dat_files[b_idx]
+                        
+                        var_val = None
+                        if mapping:
+                            filename = data_files[file_idx]
+                            for suffix, s_val in mapping.items():
+                                if suffix in filename:
+                                    var_val = s_val
+                                    break
+                        
+                        # Grab alpha if it exists, otherwise default to 1.0
+                        alpha_val = alphas_by_file.get(file_idx, 1.0)
+                        
+                        out_pdf = f"{base_name}_Reconstructed_File{file_idx+1}.pdf"
+                        plot_reconstructed_asymmetry(
+                            dat_f, dat_b, out_pdf, alpha=alpha_val, 
+                            variable_name=var_name, variable_value=var_val
+                        )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Automated muSR Fitting Orchestrator")
