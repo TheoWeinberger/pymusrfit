@@ -8,7 +8,6 @@ import re
 import argparse
 import subprocess
 
-# Dynamically compute the script's root directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
@@ -29,7 +28,6 @@ def cleanup_previous_runs():
                 print(f"   [!] Warning: Could not remove {file_path}: {e}")
 
 def export_msr_to_split_csvs(msr_filepath, data_files, config):
-    """Parses a completed MSR file and exports variables into separated CSV targets."""
     if not os.path.exists(msr_filepath):
         print(f"[!] Warning: Cannot locate {msr_filepath} to export CSV benchmarks.")
         return
@@ -51,7 +49,9 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
                 continue
 
             if in_fit_params:
-                if line == "" or line.startswith("THEORY") or line.startswith("###"):
+                # FIX: Removed the `line.startswith("###")` break condition! 
+                # Now it will just use the `continue` on comment lines safely.
+                if line == "" or line.startswith("THEORY"):
                     break
                 if line.startswith("#"):
                     continue
@@ -70,21 +70,17 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
                     all_params.append(param_dict)
 
     if not all_params:
-        print(f"[!] No fit parameters found in {msr_filepath}.")
+        print(f"[!] No fit parameters found in {msr_filepath}. Ensure the fit ran successfully.")
         return
 
     global_rows = []
     file_groups = {}
     local_groups = {}
-    
-    # Track precisely which variables should be passed to the dependency plotter
     params_to_plot = []
 
     for p in all_params:
         name = p["Name"]
-        # Match standard local params (e.g., param_Run1) or detector-split params (param_Run1_forward)
         match_run = re.search(r"^(.*)_Run(\d+)(?:_(.+))?$", name)
-        # Match file-shared params (e.g., param_File1)
         match_file = re.search(r"^(.*)_File(\d+)$", name)
         
         if match_run:
@@ -119,7 +115,6 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
             p["BaseName"] = base_param_name
             p["Variable_Value"] = var_val
             
-            # Plot local parameters ONLY if we are doing an Asymmetry fit
             if fittype == 2:
                 params_to_plot.append(p)
             
@@ -152,7 +147,6 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
             p["BaseName"] = base_param_name
             p["Variable_Value"] = var_val
             
-            # Plot file parameters ONLY if we are doing a Single Histogram fit
             if fittype == 0:
                 params_to_plot.append(p)
                 
@@ -161,7 +155,6 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
             p["BaseName"] = p["Name"]
             p["Variable_Value"] = "Global"
 
-    # 1. Export Global Parameters
     if global_rows:
         global_csv_path = "global_parameters.csv"
         with open(global_csv_path, 'w', newline='') as csvfile:
@@ -173,7 +166,6 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
                 writer.writerow(filtered_row)
         print(f">> Exported global fit parameters to '{global_csv_path}'")
 
-    # 2. Export File-Shared Parameters (For Single Histogram Mode)
     for base_name, rows in file_groups.items():
         file_csv_path = f"file_parameter_{base_name}.csv"
         with open(file_csv_path, 'w', newline='') as csvfile:
@@ -185,7 +177,6 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
                 writer.writerow(filtered_row)
         print(f">> Exported file-level parameter tracking sheet to '{file_csv_path}'")
 
-    # 3. Export Local Run/Detector Parameters
     for base_name, rows in local_groups.items():
         local_csv_path = f"local_parameter_{base_name}.csv"
         with open(local_csv_path, 'w', newline='') as csvfile:
@@ -197,7 +188,6 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
                 writer.writerow(filtered_row)
         print(f">> Exported local parameter tracking sheet to '{local_csv_path}'")
 
-    # 4. Trigger Dependency Plotter (Using the filtered parameter array)
     if mapping and params_to_plot:
         plot_parameters_vs_variable(params_to_plot, var_name)
 
@@ -284,10 +274,16 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
             print(f"[!] No ASCII dump files found matching '{base_name}_*.dat'. Ensure musrfit ran successfully.")
         else:
             fittype = config.get("fittype", 2)
-            num_detectors = len(config.get("detectors", {})) if fittype == 0 else 1
+            detectors_dict = config.get("detectors", {})
+            detector_names = list(detectors_dict.keys())
+            num_detectors = len(detector_names) if fittype == 0 else 1
+            
             for i, dat_file in enumerate(dat_files):
                 pdf_name = dat_file.replace(".dat", ".pdf")
                 file_idx = i // num_detectors
+                
+                # Fetch explicit detector name string via array index math
+                det_name = detector_names[i % num_detectors] if fittype == 0 else None
                 
                 var_val = None
                 if file_idx < len(data_files) and mapping:
@@ -297,7 +293,15 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                             var_val = s_val
                             break
                             
-                plot_musrfit_data(dat_file, pdf_name, variable_name=var_name, variable_value=var_val, fittype=fittype)
+                # Pass both fittype and detector_name down to plotting layer
+                plot_musrfit_data(
+                    dat_file, 
+                    pdf_name, 
+                    variable_name=var_name, 
+                    variable_value=var_val, 
+                    fittype=fittype, 
+                    detector_name=det_name
+                )
 
 
 if __name__ == "__main__":

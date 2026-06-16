@@ -2,7 +2,7 @@
 import os
 import re
 
-def plot_musrfit_data(dat_filepath, output_image, variable_name=None, variable_value=None, fittype=2):
+def plot_musrfit_data(dat_filepath, output_image, variable_name=None, variable_value=None, fittype=2, detector_name=None):
     """Parses a musrfit ASCII dump file and generates a plot, optionally including an experimental variable header."""
     try:
         import matplotlib.pyplot as plt
@@ -41,7 +41,11 @@ def plot_musrfit_data(dat_filepath, output_image, variable_name=None, variable_v
         y_label = 'N(t)' if fittype == 0 else 'Asymmetry'
         plt.ylabel(y_label, fontsize=10)
         
+        # --- DYNAMIC TITLE INJECTION ---
         title_text = f'muSR Fit ({os.path.basename(dat_filepath)})'
+        if fittype == 0 and detector_name:
+            title_text += f' | Detector: {detector_name.capitalize()}'
+            
         if variable_name and variable_value is not None:
             title_text += f'\n{variable_name}: {variable_value}'
             
