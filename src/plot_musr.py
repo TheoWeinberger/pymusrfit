@@ -61,7 +61,7 @@ def plot_musrfit_data(dat_filepath, output_image, variable_name=None, variable_v
 
 
 def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.0, bkg_b=0.0, err_bkg_f=0.0, err_bkg_b=0.0, variable_name=None, variable_value=None):
-    """Calculates and plots the combined Asymmetry from two Single Histogram .dat files with background subtraction and full error propagation."""
+    """Calculates, plots, and exports the combined Asymmetry from two Single Histogram .dat files."""
     try:
         import matplotlib.pyplot as plt
         import numpy as np
@@ -100,14 +100,10 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         # 1. Calculate Experimental Asymmetry
         asymmetry[valid] = (N_f[valid] - (alpha * N_b[valid])) / denominator[valid]
         
-        # 2. Error propagation (Adding background error in quadrature)
+        # 2. Error propagation (STRICTLY STATISTICAL - Background error removed from bin-by-bin scatter)
         denominator_sq = denominator[valid] ** 2
-        
-        var_f = (sigma_N_f[valid] ** 2) + (err_bkg_f ** 2)
-        var_b = (sigma_N_b[valid] ** 2) + (err_bkg_b ** 2)
-        
-        term1 = (N_b[valid] ** 2) * var_f
-        term2 = (N_f[valid] ** 2) * var_b
+        term1 = (N_b[valid] ** 2) * (sigma_N_f[valid] ** 2)
+        term2 = (N_f[valid] ** 2) * (sigma_N_b[valid] ** 2)
         
         asymmetry_error[valid] = (2.0 * alpha) / denominator_sq * np.sqrt(term1 + term2)
         
@@ -115,6 +111,20 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         theory_denom = theory_f + (alpha * theory_b)
         valid_theory = theory_denom != 0
         theory_asym[valid_theory] = (theory_f[valid_theory] - (alpha * theory_b[valid_theory])) / theory_denom[valid_theory]
+
+        # --- EXPORT TO .DAT FILE ---
+        output_dat = output_image.replace('.pdf', '.dat')
+        valid_count = np.sum(valid)
+        
+        with open(output_dat, 'w') as f:
+            f.write(f"% number of data values = {valid_count}\n")
+            f.write("% time (us), value, error, theory\n")
+            for t, v, e, th in zip(time_us[valid], asymmetry[valid], asymmetry_error[valid], theory_asym[valid]):
+                # Fill missing theory with data value or 0 to keep columns aligned if theory fails
+                th_val = th if not np.isnan(th) else 0.0
+                f.write(f"{t:.5f}, {v:.6f}, {e:.6f}, {th_val:.6f}\n")
+                
+        print(f"   -> Saved reconstructed data array to '{output_dat}'")
 
         # --- PLOTTING ---
         fig, ax = plt.subplots(figsize=(6, 6))
@@ -146,9 +156,11 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         plt.savefig(output_image, dpi=150)
         plt.close()
         
+        print(f"   -> Saved reconstructed asymmetry plot to '{output_image}'")
+        
     except Exception as e:
         print(f"[!] Failed to reconstruct asymmetry for {dat_f} / {dat_b}: {e}")
-        
+
 
 def plot_parameters_vs_variable(params, var_name):
     """Generates physical dependency plots for each distinct fit parameter as a function of the external variable."""
