@@ -8,7 +8,10 @@ import re
 import argparse
 import subprocess
 
+# --- FIX 1: Dynamically compute the script's root directory ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Add the script directory to the Python path so "src" imports work anywhere
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
@@ -17,6 +20,15 @@ from src.msr_generator import MsrGenerator
 from src.root_metadata_extractor import extract_root_metadata
 from src.plot_musr import plot_musrfit_data, plot_parameters_vs_variable
 
+def cleanup_previous_runs():
+    """Removes previously generated data files to ensure a clean run environment."""
+    print(">> Cleaning up previous run outputs (*.csv, *.dat, *.pdf)...")
+    for ext in ['*.csv', '*.dat', '*.pdf']:
+        for file_path in glob.glob(ext):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                print(f"   [!] Warning: Could not remove {file_path}: {e}")
 
 def export_msr_to_split_csvs(msr_filepath, data_files, config):
     """Parses a completed MSR file and exports variables into separated CSV targets."""
@@ -28,8 +40,6 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
     var_name = suffix_mapping.get("variable_name", "Variable")
     mapping = suffix_mapping.get("mapping", {})
     fittype = config.get("fittype", 2)
-    
-    # NEW: Determine number of detectors correctly from config keys
     num_detectors = len(config.get("detectors", {})) if fittype == 0 else 1
 
     all_params = []
@@ -70,13 +80,14 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
 
     for p in all_params:
         name = p["Name"]
-        match_run = re.search(r"^(.*)_Run(\d+)$", name)
+        match_run = re.search(r"^(.*)_Run(\d+)(?:_(.*))?$", name)
         match_file = re.search(r"^(.*)_File(\d+)$", name)
         
         if match_run:
             base_param_name = match_run.group(1)
             run_idx = int(match_run.group(2)) - 1
-            file_idx = run_idx // num_detectors
+            det_name = match_run.group(3) if match_run.group(3) else ""
+            file_idx = run_idx // num_detectors if fittype == 0 else run_idx
             
             var_val = "Unknown"
             if 0 <= file_idx < len(data_files):
@@ -88,6 +99,7 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
 
             local_row = {
                 "Run_Index": run_idx + 1,
+                "Detector": det_name if det_name else "Combined",
                 "File_Name": data_files[file_idx] if 0 <= file_idx < len(data_files) else "Unknown",
                 var_name: var_val,
                 "Value": p["Value"],
@@ -117,6 +129,7 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
 
             local_row = {
                 "Run_Index": f"File_{file_idx + 1}",
+                "Detector": "All",
                 "File_Name": data_files[file_idx] if 0 <= file_idx < len(data_files) else "Unknown",
                 var_name: var_val,
                 "Value": p["Value"],
@@ -149,7 +162,7 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
     for base_name, rows in local_groups.items():
         local_csv_path = f"local_parameter_{base_name}.csv"
         with open(local_csv_path, 'w', newline='') as csvfile:
-            fieldnames = ["Run_Index", "File_Name", var_name, "Value", "Step/Error", "Pos_Error", "Bound_Low", "Bound_High"]
+            fieldnames = ["Run_Index", "Detector", "File_Name", var_name, "Value", "Step/Error", "Pos_Error", "Bound_Low", "Bound_High"]
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
             for row in rows:
@@ -162,6 +175,9 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
 
 
 def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.msr", do_plot=False):
+    # Perform cleanup of old results
+    cleanup_previous_runs()
+
     if config_file == "config.json" and not os.path.exists(config_file):
         config_file = os.path.join(SCRIPT_DIR, "config.json")
 
@@ -202,9 +218,9 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
         print(f">> Honoring timing constraints directly from '{config_file}' configuration.")
         for scope in ["forward", "backward"]:
             if f"bkg_range_{scope}" not in config["timing"]:
-                config["timing"][f"bkg_range_{scope}"] = config["timing"]["bkg_range"]
+                config["timing"][f"bkg_range_{scope}"] = config["timing"].get("bkg_range", [0, 0])
             if f"data_range_{scope}" not in config["timing"]:
-                config["timing"][f"data_range_{scope}"] = config["timing"]["data_range"]
+                config["timing"][f"data_range_{scope}"] = config["timing"].get("data_range", [0, 0])
     else:
         print(f">> Timing block missing or empty in configuration. Falling back to metadata extraction...")
         metadata = extract_root_metadata(data_files[0])
@@ -241,10 +257,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
             print(f"[!] No ASCII dump files found matching '{base_name}_*.dat'. Ensure musrfit ran successfully.")
         else:
             fittype = config.get("fittype", 2)
-            
-            # NEW: Determine number of detectors correctly from config keys
             num_detectors = len(config.get("detectors", {})) if fittype == 0 else 1
-            
             for i, dat_file in enumerate(dat_files):
                 pdf_name = dat_file.replace(".dat", ".pdf")
                 file_idx = i // num_detectors
