@@ -7,8 +7,9 @@ class MsrGenerator:
         self.file_timings = file_timings or {}
         self.msr_lines = []
         
-        # Tracking states for variable location identifiers
         self.alpha_param_num = None
+        self.asym_base_name = ""
+        self.asym_registry = {}    # Format: { "global" or det_name: fit_index }
         self.global_registry = {}  # Format: { "variable_name": fit_index }
         self.file_registry = {}    # Format: { "variable_name": [file1_idx, file2_idx, ...] }
         self.local_registry = {}   # Format: { "variable_name": [run1_idx, run2_idx, ...] }
@@ -19,8 +20,8 @@ class MsrGenerator:
         self.msr_lines.append("FITPARAMETER")
         self.msr_lines.append("#      Nr. Name                        Value     Step      Pos_Error  Boundaries")
         
-        # Scale instrument tracking attributes
-        alpha_cfg = self.config["alpha"]
+        # 1. Scale instrument tracking attributes
+        alpha_cfg = self.config.get("alpha", {"value": 1.0, "step": 0.0, "fit": False})
         step = alpha_cfg["step"] if alpha_cfg.get("fit", False) else 0.0
         pos_err = alpha_cfg.get("pos_err", "none")
         boundaries = " ".join(str(b) for b in alpha_cfg.get("boundaries", []))
@@ -28,26 +29,67 @@ class MsrGenerator:
         self.alpha_param_num = self.param_counter
         self.param_counter += 1
         
-        # Load and register Global elements
+        fittype = self.config.get("fittype", 2)
+        detectors_dict = self.config.get("detectors", {})
+        separator_line = "#" * 63
+        
+        # 2. Process Asymmetry Parameters Specially
+        asym_cfg = self.config.get("asymmetry", {})
+        self.asym_base_name = asym_cfg.get("name", "Asym")
+        
+        if fittype == 2:
+            # Single global asymmetry for fittype 2
+            val = asym_cfg.get("value", 0.0)
+            step = asym_cfg.get("step", 0.0)
+            pos_err = asym_cfg.get("pos_err", "none")
+            boundaries = " ".join(str(b) for b in asym_cfg.get("boundaries", []))
+            self.msr_lines.append(f"        {self.param_counter} {self.asym_base_name:27} {val} {step}       {pos_err}        {boundaries}")
+            self.asym_registry["global"] = self.param_counter
+            self.param_counter += 1
+            
+        elif fittype == 0:
+            # Detector-specific asymmetry constants for fittype 0
+            for det_name, det_val in detectors_dict.items():
+                # Allow fallback checking stringified detector number ("1") or name ("forward")
+                det_asym = asym_cfg.get(str(det_val), asym_cfg.get(det_name, {}))
+                val = det_asym.get("value", asym_cfg.get("value", 0.0))
+                step = det_asym.get("step", asym_cfg.get("step", 0.0))
+                pos_err = det_asym.get("pos_err", asym_cfg.get("pos_err", "none"))
+                boundaries = " ".join(str(b) for b in det_asym.get("boundaries", asym_cfg.get("boundaries", [])))
+                
+                param_name = f"{self.asym_base_name}_{det_name}"
+                self.msr_lines.append(f"        {self.param_counter} {param_name:27} {val} {step}       {pos_err}        {boundaries}")
+                self.asym_registry[det_name] = self.param_counter
+                self.param_counter += 1
+        
+        # 3. Load and register remaining Global elements
         for p in self.config.get("global_params", []):
+            if p["name"] == self.asym_base_name: continue # Ignore if accidentally left in global_params
             pos_err = p.get("pos_err", "none")
             boundaries = " ".join(str(b) for b in p.get("boundaries", []))
             self.msr_lines.append(f"        {self.param_counter} {p['name']:27} {p['value']} {p['step']}       {pos_err}        {boundaries}")
             self.global_registry[p['name']] = self.param_counter
             self.param_counter += 1
             
-        # Allocate references for individual Local instances
+        # 4. Allocate and register File-level elements
+        for p in self.config.get("file_params", []):
+            self.file_registry[p['name']] = []
+            
+        for i, file in enumerate(self.data_files):
+            for p in self.config.get("file_params", []):
+                pos_err = p.get("pos_err", "none")
+                boundaries = " ".join(str(b) for b in p.get("boundaries", []))
+                self.msr_lines.append(f"        {self.param_counter} {p['name']}_File{i+1:21} {p['value']} {p['step']}       {pos_err}        {boundaries}")
+                self.file_registry[p['name']].append(self.param_counter)
+                self.param_counter += 1
+
+        # 5. Allocate references for individual Local instances
         for p in self.config.get("local_params", []):
             self.local_registry[p['name']] = []
             
-        fittype = self.config.get("fittype", 2)
-        detectors_dict = self.config.get("detectors", {})
-        separator_line = "#" * 63
-        
         if fittype == 2:
             # Traditional flat index per run file for asymmetry fitting
             for i, file in enumerate(self.data_files):
-                # Add hash separator between different runs
                 self.msr_lines.append(separator_line)
                 self.msr_lines.append(f"# Run {i+1} local parameters")
                 
@@ -62,7 +104,6 @@ class MsrGenerator:
         elif fittype == 0:
             # Expanded name architecture tracking both Run Number and Detector channel
             for i, file in enumerate(self.data_files):
-                # Add hash separator between different runs
                 self.msr_lines.append(separator_line)
                 self.msr_lines.append(f"# Run {i+1} local parameters")
                 
@@ -71,9 +112,7 @@ class MsrGenerator:
                         pos_err = p.get("pos_err", "none")
                         boundaries = " ".join(str(b) for b in p.get("boundaries", []))
                         
-                        # Generates names like: norm_Run1_forward or backgr_Run1_backward
                         param_name = f"{p['name']}_Run{i+1}_{det_name}"
-                        
                         self.msr_lines.append(f"        {self.param_counter} {param_name:27} {p['value']} {p['step']}       {pos_err}        {boundaries}")
                         self.local_registry[p['name']].append(self.param_counter)
                         self.param_counter += 1
@@ -132,7 +171,9 @@ class MsrGenerator:
                 
                 map_indices = []
                 for var_name in self.map_token_sequence:
-                    if var_name in self.local_registry:
+                    if var_name == self.asym_base_name:
+                        map_indices.append(str(self.asym_registry["global"]))
+                    elif var_name in self.local_registry:
                         map_indices.append(str(self.local_registry[var_name][current_run_idx]))
                     elif var_name in self.file_registry:
                         map_indices.append(str(self.file_registry[var_name][i]))
@@ -182,7 +223,9 @@ class MsrGenerator:
                     
                     map_indices = []
                     for var_name in self.map_token_sequence:
-                        if var_name in self.local_registry:
+                        if var_name == self.asym_base_name:
+                            map_indices.append(str(self.asym_registry[det_name]))
+                        elif var_name in self.local_registry:
                             map_indices.append(str(self.local_registry[var_name][current_run_idx]))
                         elif var_name in self.file_registry:
                             map_indices.append(str(self.file_registry[var_name][i]))
@@ -207,12 +250,10 @@ class MsrGenerator:
                     self.msr_lines.append("")
                     current_run_idx += 1
                     
-        # Track active total runs for plot command sequencing
         self.total_run_count = current_run_idx
 
     def build_footer(self):
         self.msr_lines.append("COMMANDS")
-        # Injects scale parameters only when parsing single histogram setups
         if self.config.get("fittype", 2) == 0:
             self.msr_lines.append("SCALE_N0_BKG TRUE")
         self.msr_lines.append("MINIMIZE")
@@ -221,11 +262,22 @@ class MsrGenerator:
         self.msr_lines.append("SAVE")
         self.msr_lines.append("")
 
+    def build_fourier(self):
+        fourier_config = self.config.get("fourier", {})
+        if not fourier_config: return
+        self.msr_lines.append("FOURIER")
+        self.msr_lines.append(f"units            {fourier_config.get('units', 'Gauss')}   # units either 'Gauss', 'Tesla', 'MHz', or 'Mc/s'")
+        self.msr_lines.append(f"fourier_power    {fourier_config.get('power', 12)}")
+        self.msr_lines.append(f"apodization      {fourier_config.get('apodization', 'NONE')}    # NONE, WEAK, MEDIUM, STRONG")
+        self.msr_lines.append(f"plot             {fourier_config.get('plot', 'POWER')}   # REAL, IMAG, REAL_AND_IMAG, POWER, PHASE, PHASE_OPT_REAL")
+        self.msr_lines.append(f"phase            {fourier_config.get('phase', 8)}")
+        self.msr_lines.append(f"range            {fourier_config.get('range', [0, 200])[0]}    {fourier_config.get('range', [0, 200])[1]}")
+        self.msr_lines.append("")
+
     def build_plot(self):
         plot_config = self.config.get("plot", {})
         fittype = self.config.get("fittype", 2)
         
-        # Build dynamic sequence list based on processed histograms (e.g. "1 2 3 4")
         if getattr(self, 'total_run_count', 0) > 0:
             run_sequence = " ".join(str(r) for r in range(1, self.total_run_count + 1))
         else:
@@ -235,8 +287,6 @@ class MsrGenerator:
             self.msr_lines.append("PLOT 0   (single histo plot)")
             self.msr_lines.append("lifetimecorrection")
             self.msr_lines.append(f"runs     {run_sequence}")
-            
-            # Fallback to defaults you requested if missing from plot configurations
             rng = plot_config.get("range", [0, 9, -0.3, 0.3])
             self.msr_lines.append(f"range    {rng[0]}   {rng[1]}   {rng[2]}   {rng[3]}")
             self.msr_lines.append("")
@@ -247,46 +297,46 @@ class MsrGenerator:
             self.msr_lines.append(f"range    {rng[0]}   {rng[1]}   {rng[2]}   {rng[3]}")
             self.msr_lines.append("")
 
-    def build_fourier(self):
-        fourier_config = self.config.get("fourier", {})
-        if not fourier_config: return
-        self.msr_lines.append("FOURIER")
-        self.msr_lines.append(f"units            {fourier_config.get('units', 'Gauss')}")
-        self.msr_lines.append(f"fourier_power    {fourier_config.get('power', 12)}")
-        self.msr_lines.append(f"apodization      {fourier_config.get('apodization', 'NONE')}")
-        self.msr_lines.append(f"plot             {fourier_config.get('plot', 'POWER')}")
-        self.msr_lines.append(f"phase            {fourier_config.get('phase', 8)}")
-        self.msr_lines.append(f"range            {fourier_config.get('range', [0, 200])[0]}    {fourier_config.get('range', [0, 200])[1]}")
-        self.msr_lines.append("")
-
     def build_statistic(self):
         from datetime import datetime
         stat_config = self.config.get("statistic", {})
+        
         timestamp = stat_config.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         chisq = stat_config.get("chisq", 0.0)
         ndf = stat_config.get("ndf", 0)
+        
         self.msr_lines.append(f"STATISTIC --- {timestamp}")
         if isinstance(chisq, (int, float)) and isinstance(ndf, (int, float)) and ndf != 0:
-            self.msr_lines.append(f"  chisq = {chisq}, NDF = {ndf}, chisq/NDF = {float(chisq)/float(ndf):.6f}")
+            chisq_ndf = float(chisq) / float(ndf)
+            self.msr_lines.append(f"  chisq = {chisq}, NDF = {ndf}, chisq/NDF = {chisq_ndf:.6f}")
         else:
             self.msr_lines.append(f"  chisq = {chisq}, NDF = {ndf}, chisq/NDF = 0.000000")
         self.msr_lines.append("")
 
     def generate_msr_string(self):
         separator = "#" * 63
+        
         self.msr_lines.append(self.config["title"])
         self.msr_lines.append(separator)
+        
         self.build_parameters()
         self.msr_lines.append(separator)
+        
         self.build_theory()
         self.msr_lines.append(separator)
+        
         self.build_runs()
         self.msr_lines.append(separator)
+        
         self.build_footer()
         self.msr_lines.append(separator)
+        
         self.build_fourier()
         self.msr_lines.append(separator)
+        
         self.build_plot()
         self.msr_lines.append(separator)
+        
         self.build_statistic()
+        
         return "\n".join(self.msr_lines)
