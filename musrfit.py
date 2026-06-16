@@ -8,10 +8,7 @@ import re
 import argparse
 import subprocess
 
-# --- FIX 1: Dynamically compute the script's root directory ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Add the script directory to the Python path so "src" imports work anywhere
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
@@ -21,14 +18,19 @@ from src.root_metadata_extractor import extract_root_metadata
 from src.plot_musr import plot_musrfit_data, plot_parameters_vs_variable
 
 
-def export_msr_to_split_csvs(msr_filepath, data_files, suffix_mapping):
+def export_msr_to_split_csvs(msr_filepath, data_files, config):
     """Parses a completed MSR file and exports variables into separated CSV targets."""
     if not os.path.exists(msr_filepath):
         print(f"[!] Warning: Cannot locate {msr_filepath} to export CSV benchmarks.")
         return
 
+    suffix_mapping = config.get("suffix_mapping", {})
     var_name = suffix_mapping.get("variable_name", "Variable")
     mapping = suffix_mapping.get("mapping", {})
+    fittype = config.get("fittype", 2)
+    
+    # NEW: Determine number of detectors correctly from config keys
+    num_detectors = len(config.get("detectors", {})) if fittype == 0 else 1
 
     all_params = []
     in_fit_params = False
@@ -68,14 +70,17 @@ def export_msr_to_split_csvs(msr_filepath, data_files, suffix_mapping):
 
     for p in all_params:
         name = p["Name"]
-        match = re.search(r"^(.*)_Run(\d+)$", name)
-        if match:
-            base_param_name = match.group(1)
-            run_idx = int(match.group(2)) - 1
+        match_run = re.search(r"^(.*)_Run(\d+)$", name)
+        match_file = re.search(r"^(.*)_File(\d+)$", name)
+        
+        if match_run:
+            base_param_name = match_run.group(1)
+            run_idx = int(match_run.group(2)) - 1
+            file_idx = run_idx // num_detectors
             
             var_val = "Unknown"
-            if 0 <= run_idx < len(data_files):
-                filename = data_files[run_idx]
+            if 0 <= file_idx < len(data_files):
+                filename = data_files[file_idx]
                 for suffix, s_val in mapping.items():
                     if suffix in filename:
                         var_val = s_val
@@ -83,7 +88,36 @@ def export_msr_to_split_csvs(msr_filepath, data_files, suffix_mapping):
 
             local_row = {
                 "Run_Index": run_idx + 1,
-                "File_Name": data_files[run_idx] if 0 <= run_idx < len(data_files) else "Unknown",
+                "File_Name": data_files[file_idx] if 0 <= file_idx < len(data_files) else "Unknown",
+                var_name: var_val,
+                "Value": p["Value"],
+                "Step/Error": p["Step/Error"],
+                "Pos_Error": p["Pos_Error"],
+                "Bound_Low": p["Bound_Low"],
+                "Bound_High": p["Bound_High"]
+            }
+            if base_param_name not in local_groups:
+                local_groups[base_param_name] = []
+            local_groups[base_param_name].append(local_row)
+            
+            p["BaseName"] = base_param_name
+            p["Variable_Value"] = var_val
+            
+        elif match_file:
+            base_param_name = match_file.group(1)
+            file_idx = int(match_file.group(2)) - 1
+            
+            var_val = "Unknown"
+            if 0 <= file_idx < len(data_files):
+                filename = data_files[file_idx]
+                for suffix, s_val in mapping.items():
+                    if suffix in filename:
+                        var_val = s_val
+                        break
+
+            local_row = {
+                "Run_Index": f"File_{file_idx + 1}",
+                "File_Name": data_files[file_idx] if 0 <= file_idx < len(data_files) else "Unknown",
                 var_name: var_val,
                 "Value": p["Value"],
                 "Step/Error": p["Step/Error"],
@@ -121,15 +155,13 @@ def export_msr_to_split_csvs(msr_filepath, data_files, suffix_mapping):
             for row in rows:
                 filtered_row = {k: row[k] for k in fieldnames if k in row}
                 writer.writerow(filtered_row)
-        print(f">> Exported local parameter tracking sheet to '{local_csv_path}'")
+        print(f">> Exported tracking sheet to '{local_csv_path}'")
 
     if mapping:
         plot_parameters_vs_variable(all_params, var_name)
 
 
 def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.msr", do_plot=False):
-    # --- FIX 2: Default config fallback logic ---
-    # If using default 'config.json' and it's not in the CWD, look where the script lives
     if config_file == "config.json" and not os.path.exists(config_file):
         config_file = os.path.join(SCRIPT_DIR, "config.json")
 
@@ -147,7 +179,6 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     }
     target_extension = extension_map.get(run_format, ".root")
     
-    # NOTE: This scans your current active working directory terminal location for data files.
     data_files = sorted(glob.glob(f"*{target_extension}"))
     data_files = [f for f in data_files if f != "MINUIT2.root"]
     
@@ -169,29 +200,21 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     
     if "timing" in config and config["timing"]:
         print(f">> Honoring timing constraints directly from '{config_file}' configuration.")
-        if "bkg_range_forward" not in config["timing"]:
-            config["timing"]["bkg_range_forward"] = config["timing"]["bkg_range"]
-        if "bkg_range_backward" not in config["timing"]:
-            config["timing"]["bkg_range_backward"] = config["timing"]["bkg_range"]
-        if "data_range_forward" not in config["timing"]:
-            config["timing"]["data_range_forward"] = config["timing"]["data_range"]
-        if "data_range_backward" not in config["timing"]:
-            config["timing"]["data_range_backward"] = config["timing"]["data_range"]
+        for scope in ["forward", "backward"]:
+            if f"bkg_range_{scope}" not in config["timing"]:
+                config["timing"][f"bkg_range_{scope}"] = config["timing"]["bkg_range"]
+            if f"data_range_{scope}" not in config["timing"]:
+                config["timing"][f"data_range_{scope}"] = config["timing"]["data_range"]
     else:
         print(f">> Timing block missing or empty in configuration. Falling back to metadata extraction...")
-        print(f"   Extracting metadata from root file: {data_files[0]}")
         metadata = extract_root_metadata(data_files[0])
-        
         if metadata.get("success"):
-            print(f"   Extracted t0: forward={metadata.get('t0_forward')}, backward={metadata.get('t0_backward')}")
             config["timing"] = metadata
-            print(f"   Auto-configured timing constraints successfully.")
         else:
             print(f"   [!] Error: Timing could not be determined. Check your configuration file layout.")
             return
         
     for custom_cfg in config.get("custom_definitions", []):
-        # Pass script directory reference context if compiler relies on relative templates
         CxxPluginGenerator.generate_and_compile(custom_cfg)
         
     generator = MsrGenerator(config, data_files)
@@ -207,7 +230,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     except subprocess.CalledProcessError as e:
         print(f"[!] Error occurred during musrfit execution: {e}")
 
-    export_msr_to_split_csvs(output_msr, data_files, suffix_mapping)
+    export_msr_to_split_csvs(output_msr, data_files, config)
 
     if do_plot:
         print(f">> Rendering data visualization plots...")
@@ -217,12 +240,18 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
         if not dat_files:
             print(f"[!] No ASCII dump files found matching '{base_name}_*.dat'. Ensure musrfit ran successfully.")
         else:
+            fittype = config.get("fittype", 2)
+            
+            # NEW: Determine number of detectors correctly from config keys
+            num_detectors = len(config.get("detectors", {})) if fittype == 0 else 1
+            
             for i, dat_file in enumerate(dat_files):
                 pdf_name = dat_file.replace(".dat", ".pdf")
+                file_idx = i // num_detectors
                 
                 var_val = None
-                if i < len(data_files) and mapping:
-                    filename = data_files[i]
+                if file_idx < len(data_files) and mapping:
+                    filename = data_files[file_idx]
                     for suffix, s_val in mapping.items():
                         if suffix in filename:
                             var_val = s_val
@@ -233,17 +262,8 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Automated muSR Fitting Orchestrator")
-    parser.add_argument(
-        "-c", "--config", 
-        type=str, 
-        default="config.json", 
-        help="Path to the JSON configuration file (default: looks in CWD, then script location)"
-    )
-    parser.add_argument(
-        "-p", "--plot", 
-        action="store_true", 
-        help="Generate pdf plots from the musrfit ASCII dump data"
-    )
+    parser.add_argument("-c", "--config", type=str, default="config.json")
+    parser.add_argument("-p", "--plot", action="store_true")
     
     args = parser.parse_args()
     run_orchestration_pipeline(config_file=args.config, output_msr="fit_model.msr", do_plot=args.plot)
