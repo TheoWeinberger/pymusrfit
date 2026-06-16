@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
 import os
+import sys
 import json
 import glob
 import csv
 import re
 import argparse
 import subprocess
+
+# --- FIX 1: Dynamically compute the script's root directory ---
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Add the script directory to the Python path so "src" imports work anywhere
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
 from src.cxx_plugin_generator import CxxPluginGenerator
 from src.msr_generator import MsrGenerator
 from src.root_metadata_extractor import extract_root_metadata
-
-# Import the data plotting routines
 from src.plot_musr import plot_musrfit_data, plot_parameters_vs_variable
 
+
 def export_msr_to_split_csvs(msr_filepath, data_files, suffix_mapping):
-    """Parses a completed MSR file and exports variables into separated CSV targets:
-    one for global metrics and dedicated individual tracking sheets for each local variable.
-    """
+    """Parses a completed MSR file and exports variables into separated CSV targets."""
     if not os.path.exists(msr_filepath):
         print(f"[!] Warning: Cannot locate {msr_filepath} to export CSV benchmarks.")
         return
@@ -58,9 +64,8 @@ def export_msr_to_split_csvs(msr_filepath, data_files, suffix_mapping):
         return
 
     global_rows = []
-    local_groups = {}  # Format: { base_param_name: [rows] }
+    local_groups = {}
 
-    # Categorize parameters into global groups or local tracking arrays
     for p in all_params:
         name = p["Name"]
         match = re.search(r"^(.*)_Run(\d+)$", name)
@@ -68,7 +73,6 @@ def export_msr_to_split_csvs(msr_filepath, data_files, suffix_mapping):
             base_param_name = match.group(1)
             run_idx = int(match.group(2)) - 1
             
-            # Resolve physical condition mapping value for this specific run index
             var_val = "Unknown"
             if 0 <= run_idx < len(data_files):
                 filename = data_files[run_idx]
@@ -91,7 +95,6 @@ def export_msr_to_split_csvs(msr_filepath, data_files, suffix_mapping):
                 local_groups[base_param_name] = []
             local_groups[base_param_name].append(local_row)
             
-            # Keep flat reference copies safely attached to all_params for the trending engine
             p["BaseName"] = base_param_name
             p["Variable_Value"] = var_val
         else:
@@ -99,19 +102,16 @@ def export_msr_to_split_csvs(msr_filepath, data_files, suffix_mapping):
             p["BaseName"] = p["Name"]
             p["Variable_Value"] = "Global"
 
-    # 1. Export Global Parameters (With explicit dictionary filtering to avoid extra keys crash)
     global_csv_path = "global_parameters.csv"
     with open(global_csv_path, 'w', newline='') as csvfile:
         fieldnames = ["No", "Name", "Value", "Step/Error", "Pos_Error", "Bound_Low", "Bound_High"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for row in global_rows:
-            # Filter row keys to match fieldnames explicitly
             filtered_row = {k: row[k] for k in fieldnames if k in row}
             writer.writerow(filtered_row)
     print(f">> Exported global fit parameters to '{global_csv_path}'")
 
-    # 2. Export Individual Local Parameters
     for base_name, rows in local_groups.items():
         local_csv_path = f"local_parameter_{base_name}.csv"
         with open(local_csv_path, 'w', newline='') as csvfile:
@@ -119,17 +119,20 @@ def export_msr_to_split_csvs(msr_filepath, data_files, suffix_mapping):
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
             for row in rows:
-                # Local dictionaries match perfectly, but filtered for safety
                 filtered_row = {k: row[k] for k in fieldnames if k in row}
                 writer.writerow(filtered_row)
         print(f">> Exported local parameter tracking sheet to '{local_csv_path}'")
 
-    # 3. Automatically trigger trends plotting using structured mapping data
     if mapping:
         plot_parameters_vs_variable(all_params, var_name)
 
 
 def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.msr", do_plot=False):
+    # --- FIX 2: Default config fallback logic ---
+    # If using default 'config.json' and it's not in the CWD, look where the script lives
+    if config_file == "config.json" and not os.path.exists(config_file):
+        config_file = os.path.join(SCRIPT_DIR, "config.json")
+
     if not os.path.exists(config_file):
         print(f"[!] Fatal: Configuration file '{config_file}' not found.")
         return
@@ -144,7 +147,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     }
     target_extension = extension_map.get(run_format, ".root")
     
-    # Discover available data files
+    # NOTE: This scans your current active working directory terminal location for data files.
     data_files = sorted(glob.glob(f"*{target_extension}"))
     data_files = [f for f in data_files if f != "MINUIT2.root"]
     
@@ -152,7 +155,6 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     var_name = suffix_mapping.get("variable_name")
     mapping = suffix_mapping.get("mapping", {})
 
-    # Filter dataset files based on the defined suffix mappings
     if mapping:
         filtered_files = []
         for f in data_files:
@@ -162,10 +164,9 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
         print(f">> Active dataset filtered via suffix_mapping: {len(data_files)} files retained for analysis.")
 
     if not data_files:
-        print(f"[!] Info: No matching data collections found or retained using '{target_extension}'.")
+        print(f"[!] Info: No matching data collections found or retained using '{target_extension}' in current directory.")
         return
     
-    # Handle timing constraints configuration
     if "timing" in config and config["timing"]:
         print(f">> Honoring timing constraints directly from '{config_file}' configuration.")
         if "bkg_range_forward" not in config["timing"]:
@@ -190,6 +191,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
             return
         
     for custom_cfg in config.get("custom_definitions", []):
+        # Pass script directory reference context if compiler relies on relative templates
         CxxPluginGenerator.generate_and_compile(custom_cfg)
         
     generator = MsrGenerator(config, data_files)
@@ -205,7 +207,6 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     except subprocess.CalledProcessError as e:
         print(f"[!] Error occurred during musrfit execution: {e}")
 
-    # Process individual files using the updated separate exporter function
     export_msr_to_split_csvs(output_msr, data_files, suffix_mapping)
 
     if do_plot:
@@ -236,7 +237,7 @@ if __name__ == "__main__":
         "-c", "--config", 
         type=str, 
         default="config.json", 
-        help="Path to the JSON configuration file (default: config.json)"
+        help="Path to the JSON configuration file (default: looks in CWD, then script location)"
     )
     parser.add_argument(
         "-p", "--plot", 
