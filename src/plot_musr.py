@@ -115,7 +115,7 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
                 (dAdB_f_sq * (err_bkg_f ** 2)) + \
                 (dAdB_b_sq * (err_bkg_b ** 2))
                 
-        asymmetry_error[valid] = np.sqrt(var_A)
+        asymmetry_error[valid] = var_A
         
         # 3. Calculate Theory Asymmetry
         theory_denom = theory_f_raw + (alpha * theory_b_raw)
@@ -167,7 +167,7 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         
     except Exception as e:
         print(f"[!] Failed to reconstruct asymmetry for {dat_f} / {dat_b}: {e}")
-        
+
 
 def plot_parameters_vs_variable(params, var_name):
     """Generates physical dependency plots for each distinct fit parameter as a function of the external variable."""
