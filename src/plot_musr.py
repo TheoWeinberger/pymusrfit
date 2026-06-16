@@ -61,7 +61,7 @@ def plot_musrfit_data(dat_filepath, output_image, variable_name=None, variable_v
 
 
 def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.0, bkg_b=0.0, err_bkg_f=0.0, err_bkg_b=0.0, variable_name=None, variable_value=None):
-    """Calculates, plots, and exports the combined Asymmetry from two Single Histogram .dat files using a stabilized theoretical denominator."""
+    """Calculates, plots, and exports the combined Asymmetry from two Single Histogram .dat files using standard experimental error propagation."""
     try:
         import matplotlib.pyplot as plt
         import numpy as np
@@ -89,23 +89,36 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         theory_f = theory_f_raw - bkg_f
         theory_b = theory_b_raw - bkg_b
 
-        # --- THEORETICAL DENOMINATOR (Stabilization) ---
-        theory_denom = theory_f + (alpha * theory_b)
-        valid = theory_denom != 0
+        # --- CALCULATIONS ---
+        denominator = N_f + (alpha * N_b)
+        valid = denominator != 0
         
         asymmetry = np.full_like(N_f, np.nan, dtype=float)
         asymmetry_error = np.full_like(N_f, np.nan, dtype=float)
         theory_asym = np.full_like(N_f, np.nan, dtype=float)
         
-        # 1. Calculate Experimental Asymmetry (Stabilized)
-        asymmetry[valid] = (N_f[valid] - (alpha * N_b[valid])) / theory_denom[valid]
+        # 1. Calculate Experimental Asymmetry
+        asymmetry[valid] = (N_f[valid] - (alpha * N_b[valid])) / denominator[valid]
         
-        # 2. Error propagation (Stabilized)
-        variance_sum = (sigma_N_f[valid] ** 2) + ((alpha ** 2) * (sigma_N_b[valid] ** 2))
-        asymmetry_error[valid] = np.sqrt(variance_sum) / np.abs(theory_denom[valid])
+        # 2. Error propagation (Strictly experimental counts as requested)
+        denominator_sq = denominator[valid] ** 2
+    
+        term1 = (N_b[valid] ** 2) * (sigma_N_f[valid] ** 2)
+        term2 = (N_f[valid] ** 2) * (sigma_N_b[valid] ** 2)
+
+        print(denominator_sq[0])
+        print(term1[0])
+
+        
+        
+        exit()
+        
+        asymmetry_error[valid] = ((2.0 * alpha) / denominator_sq) * np.sqrt(term1 + term2)
         
         # 3. Calculate Theory Asymmetry
-        theory_asym[valid] = (theory_f[valid] - (alpha * theory_b[valid])) / theory_denom[valid]
+        theory_denom = theory_f + (alpha * theory_b)
+        valid_theory = theory_denom != 0
+        theory_asym[valid_theory] = (theory_f[valid_theory] - (alpha * theory_b[valid_theory])) / theory_denom[valid_theory]
 
         # --- EXPORT TO .DAT FILE ---
         output_dat = output_image.replace('.pdf', '.dat')
@@ -131,8 +144,7 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         ax.errorbar(time_us[valid_mask], asymmetry[valid_mask], yerr=asymmetry_error[valid_mask], 
                     fmt='o', markersize=3, color='black', alpha=0.5, label='Reconstructed Data', elinewidth=1)
                     
-        # FIX: Changed `valid_theory` to just `valid` here!
-        ax.plot(time_us[valid], theory_asym[valid], '-', color='red', linewidth=2, label='Reconstructed Theory')
+        ax.plot(time_us[valid_theory], theory_asym[valid_theory], '-', color='red', linewidth=2, label='Reconstructed Theory')
         
         ax.axhline(0, color='blue', linestyle='--', linewidth=1, alpha=0.5, label='A = 0')
         
