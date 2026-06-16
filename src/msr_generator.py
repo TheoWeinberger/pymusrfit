@@ -151,6 +151,8 @@ class MsrGenerator:
                 current_run_idx += 1
                 
             elif fittype == 0:
+                print("hi")
+                exit()
                 # Single Histogram Fit
                 for det_name, det_val in detectors_dict.items():
                     self.msr_lines.append(f"RUN {file} {facility} {run_format} (name beamline institute data-file-format)")
