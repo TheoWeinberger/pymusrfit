@@ -63,64 +63,87 @@ def plot_musrfit_data(dat_filepath, output_image, variable_name=None, variable_v
 # Add to plot_musr.py
 
 def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, variable_name=None, variable_value=None):
-    """Calculates and plots the combined Asymmetry from two Single Histogram .dat files (Forward and Backward)."""
+    """Calculates and plots the combined Asymmetry from two Single Histogram .dat files."""
     try:
         import matplotlib.pyplot as plt
         import numpy as np
     except ImportError:
+        print("[!] Error: matplotlib and numpy are required for plotting.")
         return
 
     try:
-        # Load Forward Data
+        # Load Forward Data (musrfit ASCII dump format)
         data_f = np.loadtxt(dat_f, delimiter=',', comments='%')
-        time = data_f[:, 0]
+        time_us = data_f[:, 0]
         N_f = data_f[:, 1]
-        err_f = data_f[:, 2]
+        sigma_N_f = data_f[:, 2]
         theory_f = data_f[:, 3]
 
         # Load Backward Data
         data_b = np.loadtxt(dat_b, delimiter=',', comments='%')
         N_b = data_b[:, 1]
-        err_b = data_b[:, 2]
+        sigma_N_b = data_b[:, 2]
         theory_b = data_b[:, 3]
 
-        # --- CALCULATIONS ---
-        # 1. Experimental Asymmetry
-        denominator = N_f + alpha * N_b
-        # Prevent division by zero
-        safe_denominator = np.where(denominator == 0, 1e-10, denominator) 
-        A_exp = (N_f - alpha * N_b) / safe_denominator
-
-        # 2. Experimental Error Propagation
-        A_err = (2 * alpha / safe_denominator**2) * np.sqrt((N_b**2 * err_f**2) + (N_f**2 * err_b**2))
-
-        # 3. Theory Asymmetry
-        theory_denom = theory_f + alpha * theory_b
-        safe_theory_denom = np.where(theory_denom == 0, 1e-10, theory_denom)
-        A_theory = (theory_f - alpha * theory_b) / safe_theory_denom
+        # --- CALCULATIONS (Using strict masking logic) ---
+        denominator = N_f + (alpha * N_b)
+        
+        # Avoid division by zero
+        valid = denominator != 0
+        
+        asymmetry = np.full_like(N_f, np.nan, dtype=float)
+        asymmetry_error = np.full_like(N_f, np.nan, dtype=float)
+        theory_asym = np.full_like(N_f, np.nan, dtype=float)
+        
+        # 1. Calculate Experimental Asymmetry
+        asymmetry[valid] = (N_f[valid] - (alpha * N_b[valid])) / denominator[valid]
+        
+        # 2. Error propagation 
+        denominator_sq = denominator[valid] ** 2
+        term1 = (N_b[valid] ** 2) * (sigma_N_f[valid] ** 2)
+        term2 = (N_f[valid] ** 2) * (sigma_N_b[valid] ** 2)
+        
+        asymmetry_error[valid] = (2.0 * alpha) / denominator_sq * np.sqrt(term1 + term2)
+        
+        # 3. Calculate Theory Asymmetry
+        theory_denom = theory_f + (alpha * theory_b)
+        valid_theory = theory_denom != 0
+        theory_asym[valid_theory] = (theory_f[valid_theory] - (alpha * theory_b[valid_theory])) / theory_denom[valid_theory]
 
         # --- PLOTTING ---
-        plt.figure(figsize=(6, 6))
-        plt.tick_params('both', which='major', direction='in', length=5, width=1.2, bottom=True, top=True, left=True, right=True)
-        plt.tick_params('both', which='minor', direction='in', length=3, width=1, bottom=True, top=True, left=True, right=True)
+        fig, ax = plt.subplots(figsize=(6, 6))
         
-        plt.errorbar(time, A_exp, yerr=A_err, fmt='o', markersize=3, color='black', alpha=0.5, label='Reconstructed Data', elinewidth=1)
-        plt.plot(time, A_theory, '-', color='red', linewidth=2, label='Reconstructed Theory')
+        ax.tick_params('both', which='major', direction='in', length=5, width=1.2, bottom=True, top=True, left=True, right=True)
+        ax.tick_params('both', which='minor', direction='in', length=3, width=1, bottom=True, top=True, left=True, right=True)
         
-        plt.xlabel(r'Time ($\mu s$)', fontsize=10)
-        plt.ylabel('Reconstructed Asymmetry', fontsize=10)
+        # Extract valid points for plotting
+        valid_mask = ~np.isnan(asymmetry)
+        
+        ax.errorbar(time_us[valid_mask], asymmetry[valid_mask], yerr=asymmetry_error[valid_mask], 
+                    fmt='o', markersize=3, color='black', alpha=0.5, label='Reconstructed Data', elinewidth=1)
+                    
+        ax.plot(time_us[valid_theory], theory_asym[valid_theory], '-', color='red', linewidth=2, label='Reconstructed Theory')
+        
+        # Add reference line at A=0
+        ax.axhline(0, color='blue', linestyle='--', linewidth=1, alpha=0.5, label='A = 0')
+        
+        ax.set_xlabel(r'Time ($\mu s$)', fontsize=10)
+        ax.set_ylabel(r'Asymmetry $A(t) = (N_f - \alpha N_b) / (N_f + \alpha N_b)$', fontsize=10)
         
         title_text = f'Reconstructed Asymmetry (alpha={alpha:.3f})'
         if variable_name and variable_value is not None:
             title_text += f'\n{variable_name}: {variable_value}'
             
-        plt.title(title_text, fontsize=10)
-        plt.legend(fontsize=10, frameon=False)
-        plt.tight_layout()
+        ax.set_title(title_text, fontsize=10)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=10, frameon=False)
         
+        plt.tight_layout()
         plt.savefig(output_image, dpi=150)
         plt.close()
+        
         print(f"   -> Saved reconstructed asymmetry plot to '{output_image}'")
+        
     except Exception as e:
         print(f"[!] Failed to reconstruct asymmetry for {dat_f} / {dat_b}: {e}")
 
