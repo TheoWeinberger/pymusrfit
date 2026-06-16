@@ -79,7 +79,7 @@ class MsrGenerator:
             for p in self.config.get("file_params", []):
                 pos_err = p.get("pos_err", "none")
                 boundaries = " ".join(str(b) for b in p.get("boundaries", []))
-                self.msr_lines.append(f"        {self.param_counter} {p['name']}_File_{i+1} {p['value']} {p['step']}       {pos_err}        {boundaries}")
+                self.msr_lines.append(f"        {self.param_counter} {p['name']}_File{i+1} {p['value']} {p['step']}       {pos_err}        {boundaries}")
                 self.file_registry[p['name']].append(self.param_counter)
                 self.param_counter += 1
 
