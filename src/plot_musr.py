@@ -61,7 +61,7 @@ def plot_musrfit_data(dat_filepath, output_image, variable_name=None, variable_v
 
 
 def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.0, bkg_b=0.0, err_bkg_f=0.0, err_bkg_b=0.0, variable_name=None, variable_value=None):
-    """Calculates, plots, and exports the combined Asymmetry from two Single Histogram .dat files using standard experimental error propagation."""
+    """Calculates, plots, and exports the combined Asymmetry using exact analytical error propagation."""
     try:
         import matplotlib.pyplot as plt
         import numpy as np
@@ -83,36 +83,44 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         sigma_N_b = data_b[:, 2]
         theory_b_raw = data_b[:, 3]
 
-        # --- SUBTRACT BACKGROUND ---
-        N_f = N_f_raw - bkg_f
-        N_b = N_b_raw - bkg_b
-        theory_f = theory_f_raw - bkg_f
-        theory_b = theory_b_raw - bkg_b
+        # --- SUBTRACT BACKGROUND (Numerator Only) ---
+        N_f_sub = N_f_raw - bkg_f
+        N_b_sub = N_b_raw - bkg_b
+        theory_f_sub = theory_f_raw - bkg_f
+        theory_b_sub = theory_b_raw - bkg_b
 
-        # --- CALCULATIONS ---
-        denominator = N_f + (alpha * N_b)
-        valid = denominator != 0
+        # --- RAW DENOMINATOR ---
+        denom_raw = N_f_raw + (alpha * N_b_raw)
+        valid = denom_raw != 0
         
-        asymmetry = np.full_like(N_f, np.nan, dtype=float)
-        asymmetry_error = np.full_like(N_f, np.nan, dtype=float)
-        theory_asym = np.full_like(N_f, np.nan, dtype=float)
+        asymmetry = np.full_like(N_f_raw, np.nan, dtype=float)
+        asymmetry_error = np.full_like(N_f_raw, np.nan, dtype=float)
+        theory_asym = np.full_like(N_f_raw, np.nan, dtype=float)
         
-        # 1. Calculate Experimental Asymmetry
-        asymmetry[valid] = (N_f[valid] - (alpha * N_b[valid])) / denominator[valid]
+        # 1. Calculate Asymmetry
+        asymmetry[valid] = (N_f_sub[valid] - (alpha * N_b_sub[valid])) / denom_raw[valid]
         
-        # 2. Error propagation (Strictly experimental counts as requested)
-        denominator_sq = denominator[valid] ** 2
-    
-        term1 = (N_b[valid] ** 2) * (sigma_N_f[valid] ** 2)
-        term2 = (N_f[valid] ** 2) * (sigma_N_b[valid] ** 2)
-
+        # 2. EXACT Error Propagation (Including Background Errors)
+        denom_sq = denom_raw[valid] ** 2
         
-        asymmetry_error[valid] = (((2.0 * alpha) / denominator_sq) * np.sqrt(term1 + term2))**2
+        # Partial derivatives squared
+        dAdN_f_sq = ((2.0 * alpha * N_b_raw[valid] + bkg_f - alpha * bkg_b) / denom_sq) ** 2
+        dAdN_b_sq = ((-2.0 * alpha * N_f_raw[valid] + alpha * bkg_f - (alpha**2) * bkg_b) / denom_sq) ** 2
+        dAdB_f_sq = (-1.0 / denom_raw[valid]) ** 2
+        dAdB_b_sq = (alpha / denom_raw[valid]) ** 2
+        
+        # Sum of variances
+        var_A = (dAdN_f_sq * (sigma_N_f[valid] ** 2)) + \
+                (dAdN_b_sq * (sigma_N_b[valid] ** 2)) + \
+                (dAdB_f_sq * (err_bkg_f ** 2)) + \
+                (dAdB_b_sq * (err_bkg_b ** 2))
+                
+        asymmetry_error[valid] = np.sqrt(var_A)
         
         # 3. Calculate Theory Asymmetry
-        theory_denom = theory_f + (alpha * theory_b)
+        theory_denom = theory_f_raw + (alpha * theory_b_raw)
         valid_theory = theory_denom != 0
-        theory_asym[valid_theory] = (theory_f[valid_theory] - (alpha * theory_b[valid_theory])) / theory_denom[valid_theory]
+        theory_asym[valid_theory] = (theory_f_sub[valid_theory] - (alpha * theory_b_sub[valid_theory])) / theory_denom[valid_theory]
 
         # --- EXPORT TO .DAT FILE ---
         output_dat = output_image.replace('.pdf', '.dat')
@@ -157,11 +165,9 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         plt.savefig(output_image, dpi=150)
         plt.close()
         
-        print(f"   -> Saved reconstructed asymmetry plot to '{output_image}'")
-        
     except Exception as e:
         print(f"[!] Failed to reconstruct asymmetry for {dat_f} / {dat_b}: {e}")
-
+        
 
 def plot_parameters_vs_variable(params, var_name):
     """Generates physical dependency plots for each distinct fit parameter as a function of the external variable."""
