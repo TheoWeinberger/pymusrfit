@@ -49,10 +49,13 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
                 continue
 
             if in_fit_params:
-                if line == "" or line.startswith("THEORY"):
+                # --- FIX: Stop ONLY on Theory/Commands. Ignore empty lines! ---
+                if line.startswith("THEORY") or line.startswith("COMMANDS"):
                     break
-                if line.startswith("#"):
+                if not line or line.startswith("#"):
                     continue
+
+                parts = re.split(r'\s+', line)
 
                 parts = re.split(r'\s+', line)
                 if len(parts) >= 4:
