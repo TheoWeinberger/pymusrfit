@@ -49,8 +49,6 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
                 continue
 
             if in_fit_params:
-                # FIX: Removed the `line.startswith("###")` break condition! 
-                # Now it will just use the `continue` on comment lines safely.
                 if line == "" or line.startswith("THEORY"):
                     break
                 if line.startswith("#"):
@@ -80,8 +78,12 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
 
     for p in all_params:
         name = p["Name"]
-        match_run = re.search(r"^(.*)_Run(\d+)(?:_(.+))?$", name)
-        match_file = re.search(r"^(.*)_File(\d+)$", name)
+        
+        # --- FIX: Case-insensitive, robust regex matching ---
+        # Matches: Param_Run1_forward, Param_run1, ParamRun1
+        match_run = re.search(r"^(.*?)_?[Rr]un(\d+)(?:_(.+))?$", name)
+        # Matches: Param_File1, Param_file1, ParamFile1
+        match_file = re.search(r"^(.*?)_?[Ff]ile(\d+)$", name)
         
         if match_run:
             base_param_name = match_run.group(1)
@@ -147,10 +149,12 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
             p["BaseName"] = base_param_name
             p["Variable_Value"] = var_val
             
+            # Add ONLY file parameters to the plotter array for Single Histogram fits
             if fittype == 0:
                 params_to_plot.append(p)
                 
         else:
+            # If it misses BOTH regexes above, it lands here.
             global_rows.append(p)
             p["BaseName"] = p["Name"]
             p["Variable_Value"] = "Global"
@@ -282,7 +286,6 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                 pdf_name = dat_file.replace(".dat", ".pdf")
                 file_idx = i // num_detectors
                 
-                # Fetch explicit detector name string via array index math
                 det_name = detector_names[i % num_detectors] if fittype == 0 else None
                 
                 var_val = None
@@ -293,7 +296,6 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                             var_val = s_val
                             break
                             
-                # Pass both fittype and detector_name down to plotting layer
                 plot_musrfit_data(
                     dat_file, 
                     pdf_name, 
