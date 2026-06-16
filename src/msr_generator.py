@@ -110,7 +110,7 @@ class MsrGenerator:
                 }
             
             if fittype == 2:
-                # Standard Asymmetry Fit requires explicit forward/backward definitions
+                # Standard Asymmetry Fit
                 fwd = detectors_dict.get("forward", 1)
                 bwd = detectors_dict.get("backward", 2)
                 
@@ -133,7 +133,6 @@ class MsrGenerator:
                 self.msr_lines.append(f"forward         {fwd}")
                 self.msr_lines.append(f"backward        {bwd}")
                 
-                # Fetch asymmetric bounds
                 b_f_start, b_f_end = time_cfg.get('bkg_range_forward', time_cfg.get('bkg_range', [0,0]))
                 b_b_start, b_b_end = time_cfg.get('bkg_range_backward', time_cfg.get('bkg_range', [0,0]))
                 d_f_start, d_f_end = time_cfg.get('data_range_forward', time_cfg.get('data_range', [0,0]))
@@ -152,11 +151,26 @@ class MsrGenerator:
                 current_run_idx += 1
                 
             elif fittype == 0:
-                # Single Histogram Fit: Dynamically iterate over ANY detector names given
+                # Single Histogram Fit
                 for det_name, det_val in detectors_dict.items():
                     self.msr_lines.append(f"RUN {file} {facility} {run_format} (name beamline institute data-file-format)")
                     self.msr_lines.append("fittype         0         (single histogram fit)")
                     
+                    # 1. Inject norm parameter ID
+                    if "norm" in self.local_registry:
+                        norm_param_num = self.local_registry["norm"][current_run_idx]
+                        self.msr_lines.append(f"norm            {norm_param_num}")
+                    else:
+                        raise KeyError("Missing required local parameter 'norm' for fittype 0.")
+                        
+                    # 2. Inject backgr.fit parameter ID
+                    if "backgr" in self.local_registry:
+                        backgr_param_num = self.local_registry["backgr"][current_run_idx]
+                        self.msr_lines.append(f"backgr.fit      {backgr_param_num}")
+                    else:
+                        raise KeyError("Missing required local parameter 'backgr' for fittype 0.")
+                    
+                    # 3. Compile map indices sequence
                     map_indices = []
                     for var_name in self.map_token_sequence:
                         if var_name in self.local_registry:
@@ -169,15 +183,14 @@ class MsrGenerator:
                             raise KeyError(f"Configuration Reference Mismatch: '{var_name}' is unmapped.")
                             
                     self.msr_lines.append("map             " + " ".join(map_indices))
-                    # musrfit syntax for single histograms uses 'forward' to declare the target histogram ID
+                    
+                    # 4. Inject detector target ID
                     self.msr_lines.append(f"forward         {det_val}")
                     
-                    # Extract single-detector boundaries (falling back to global timing constraints if specific not found)
-                    bkg_start, bkg_end = time_cfg.get(f'bkg_range_{det_name}', time_cfg.get('bkg_range', [0,0]))
+                    # 5. Extract bounds (omitting background range line entirely)
                     data_start, data_end = time_cfg.get(f'data_range_{det_name}', time_cfg.get('data_range', [0,0]))
                     t0_val = time_cfg.get(f't0_{det_name}', time_cfg.get('t0', 0))
                     
-                    self.msr_lines.append(f"background      {bkg_start}      {bkg_end}")
                     self.msr_lines.append(f"data            {data_start}    {data_end}")
                     self.msr_lines.append(f"t0              {t0_val}")
                     
