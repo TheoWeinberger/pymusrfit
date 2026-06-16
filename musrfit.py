@@ -297,7 +297,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                             var_val = s_val
                             break
                             
-                plot_musrfit_data(dat_file, pdf_name, variable_name=var_name, variable_value=var_val)
+                plot_musrfit_data(dat_file, pdf_name, variable_name=var_name, variable_value=var_val, fittype=fittype)
 
 
 if __name__ == "__main__":
