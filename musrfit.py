@@ -200,6 +200,8 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
     if mapping and params_to_plot:
         plot_parameters_vs_variable(params_to_plot, var_name)
 
+def natural_sort_key(s):
+        return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
 
 def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.msr", do_plot=False):
     cleanup_previous_runs()
@@ -277,7 +279,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     if do_plot:
         print(f">> Rendering data visualization plots...")
         base_name = os.path.splitext(output_msr)[0]
-        dat_files = sorted(glob.glob(f"{base_name}_*.dat"))
+        dat_files = sorted(glob.glob(f"{base_name}_*.dat"), key=natural_sort_key)
         print(dat_files)
         exit()
         
