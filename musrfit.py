@@ -310,7 +310,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     
     print(f">> Triggering active analysis handoff wrapper step...")
     try:
-        subprocess.run(["musrfit", "--per-run-block-chisq" , "--timeout", "-1", "--dump", "ascii", output_msr], check=True)
+        subprocess.run(["musrfit", "--timeout", "-1", "--dump", "ascii", output_msr], check=True)
     except subprocess.CalledProcessError as e:
         print(f"[!] Error occurred during musrfit execution: {e}")
 
