@@ -191,8 +191,8 @@ class MsrGenerator:
                 self.msr_lines.append(f"backward        {bwd}")
                 
                 # Lookup pre-resolved timings directly
-                f_time = self.file_timings[fwd][i]
-                b_time = self.file_timings[bwd][i]
+                f_time = self.file_timings[fwd][i+1]
+                b_time = self.file_timings[bwd][i+1]
                 
                 self.msr_lines.append(f"background      {f_time['bkg_range'][0]}      {f_time['bkg_range'][1]}     {b_time['bkg_range'][0]}      {b_time['bkg_range'][1]}")
                 self.msr_lines.append(f"data            {f_time['data_range'][0]}    {f_time['data_range'][1]}  {b_time['data_range'][0]}    {b_time['data_range'][1]}")
