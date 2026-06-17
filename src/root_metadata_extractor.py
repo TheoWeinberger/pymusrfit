@@ -10,6 +10,8 @@ def extract_root_metadata(root_file_path, forward_name="Forw", backward_name="Ba
     # Try PyROOT first (highly reliable for custom C++ collections like TObjArray)
     try:
         import ROOT
+        print("hi")
+        exit()
         return _extract_with_root(root_file_path, forward_name, backward_name)
     except ImportError:
         print("hi")
