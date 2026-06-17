@@ -110,7 +110,7 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
 
         
                 
-        asymmetry_error[valid] = fa2b_sqrt*a21_sqrt / fab
+        asymmetry_error[valid] = (fa2b_sqrt*a21_sqrt / fab)**2
         
         # 3. Calculate Theory Asymmetry
         theory_denom = theory_f_sub + (alpha * theory_b_sub)
