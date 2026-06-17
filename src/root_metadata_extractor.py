@@ -93,6 +93,8 @@ def _extract_with_uproot(root_file_path, forward_name, backward_name):
                 # Handle uproot string listings inside object members safely
                 for member in getattr(det_array, "members", []):
                     text = str(member)
+                    print(text)
+                    exit()
                     
                     name_match = re.search(r"Name:\s*([^\s\-]+)", text)
                     t0_match = re.search(r"Time Zero Bin:\s*([\d\.]+)", text)
