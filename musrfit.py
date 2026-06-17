@@ -280,8 +280,6 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
         print(f">> Rendering data visualization plots...")
         base_name = os.path.splitext(output_msr)[0]
         dat_files = sorted(glob.glob(f"{base_name}_*.dat"), key=natural_sort_key)
-        print(dat_files)
-        exit()
         
         if not dat_files:
             print(f"[!] No ASCII dump files found matching '{base_name}_*.dat'. Ensure musrfit ran successfully.")
