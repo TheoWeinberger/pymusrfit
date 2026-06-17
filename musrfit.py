@@ -277,10 +277,24 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     if do_plot:
         print(f">> Rendering data visualization plots...")
         base_name = os.path.splitext(output_msr)[0]
-        dat_files = sorted(glob.glob(f"{base_name}_*.dat"))
+        all_dat_files = glob.glob(f"{base_name}_*.dat")
         
-        if not dat_files:
-            print(f"[!] No ASCII dump files found matching '{base_name}_*.dat'. Ensure musrfit ran successfully.")
+        # Create a dictionary to map the integer ID found in the filename to the actual path
+        dat_file_map = {}
+        for f in all_dat_files:
+            # Matches the number at the end of the filename before .dat
+            match = re.search(f"{base_name}_(\d+)\.dat$", f)
+            if match:
+                dat_id = int(match.group(1))
+                dat_file_map[dat_id] = f
+        
+        # Build an ordered list based on the data_files index (0, 1, 2...)
+        # This forces the .dat files to match the order of your ROOT files
+        dat_files = [dat_file_map.get(i) for i in range(len(data_files))]
+        
+        if None in dat_files:
+            print(f"[!] Error: Could not find all expected .dat files (found {len(dat_file_map)} of {len(data_files)}).")
+            return
         else:
             fittype = config.get("fittype", 2)
             detectors_dict = config.get("detectors", {})

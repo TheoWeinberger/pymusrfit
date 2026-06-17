@@ -104,13 +104,15 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         denom_sq = denom[valid] ** 2
         
         # Partial derivatives squared
-        fa2b_sqrt = np.sqrt(N_f_sub[valid] + (alpha**2) * N_b_sub[valid])
+        fa2b_sqrt = np.sqrt(abs(N_f_sub[valid]) + (alpha**2) * abs(N_b_sub[valid]))
         a21_sqrt = np.sqrt(1+asymmetry[valid]**2)
-        fab = (N_f_sub[valid] + alpha * N_b_sub[valid])
+        fab = (abs(N_f_sub[valid]) + alpha * abs(N_b_sub[valid]))
+
+        valid_err = fab != 0
 
         
                 
-        asymmetry_error[valid] = (fa2b_sqrt*a21_sqrt / fab)**2
+        asymmetry_error[valid_err] = (fa2b_sqrt*a21_sqrt / fab)**2
         
         # 3. Calculate Theory Asymmetry
         theory_denom = theory_f_sub + (alpha * theory_b_sub)
