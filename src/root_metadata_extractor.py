@@ -21,10 +21,6 @@ def build_timing_config(data_files, detectors_dict):
         
         # Extract all detectors from this specific file, keyed by their Histo Number
         file_meta = _extract_single_file(filepath)
-
-        print(f"Extracted metadata for file {filepath}: {file_meta}")  # Debug print
-        print(file_meta)
-        exit()
         
         for det_name, det_num in detectors_dict.items():
             if not file_meta["success"]:
@@ -32,6 +28,9 @@ def build_timing_config(data_files, detectors_dict):
                 det_data = {}
             else:
                 det_data = file_meta["data"].get(det_num, {})
+
+            print(det_data)
+            exit()
                 
             t0 = det_data.get("t0", 1600.0)
             first_good = det_data.get("first_good", 1620)
