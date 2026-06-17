@@ -98,7 +98,7 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         theory_asym = np.full_like(N_f_raw, np.nan, dtype=float)
         
         # 1. Calculate Asymmetry
-        asymmetry[valid] = (N_f_sub[valid] - (N_b_sub[valid])) / denom[valid]
+        asymmetry[valid] = (N_f_sub[valid] - (alpha*N_b_sub[valid])) / denom[valid]
         
         # 2. EXACT Error Propagation (Including Background Errors)
         denom_sq = denom[valid] ** 2
