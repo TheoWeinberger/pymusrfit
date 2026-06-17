@@ -215,6 +215,38 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
 def natural_sort_key(s):
         return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', s)]
 
+def resolve_all_timings(data_files, config, raw_file_timings):
+    resolved = {}
+    cfg_timing = config.get("timing", {})
+    detectors = config.get("detectors", {}).values()
+    
+    defaults = {
+        "t0": 1600.0,
+        "bkg_range": [20, 1400],
+        "data_range": [1600, 100000]
+    }
+
+    for det_num in detectors:
+        resolved[det_num] = {}
+        for i in range(len(data_files)):
+            run_idx = i + 1
+            resolved[det_num][run_idx] = {}
+            
+            for key, default_val in defaults.items():
+                # 1. Config Priority: Look for config[det][run][key]
+                val = cfg_timing.get(str(det_num), {}).get(str(run_idx), {}).get(key)
+                
+                # 2. ROOT Metadata Priority: Look for raw_meta[det][run][key]
+                if val is None:
+                    val = raw_file_timings.get(det_num, {}).get(run_idx, {}).get(key)
+                
+                # 3. Default Priority
+                if val is None:
+                    val = default_val
+                
+                resolved[det_num][run_idx][key] = val
+    return resolved
+
 def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.msr", do_plot=False):
     cleanup_previous_runs()
 
@@ -261,44 +293,9 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     
     # 1. Fetch raw metadata from ROOT files
     raw_file_timings = build_timing_config(data_files, config.get("detectors", {}))
-    print(raw_file_timings)
     
-    # 2. Build the fully resolved timing dictionary (Priority: Config > ROOT > Default)
-    resolved_timings = {}
-    global_cfg_timings = config.get("timing", {})
-    detectors_dict = config.get("detectors", {})
-    
-    defaults = {
-        "t0": 1600.0,
-        "bkg_range": [20, 1400],
-        "data_range": [1600, 100000]
-    }
-
-    for det_name, det_num in detectors_dict.items():
-        resolved_timings[det_num] = {}
-        for i, file in enumerate(data_files):
-            run_idx = i + 1  # <--- THIS IS THE CRITICAL FIX
-            resolved_timings[det_num][i] = {}
-            for key, default_val in defaults.items():
                 
-                # Priority 1: Detector-specific config (e.g., "t0_5")
-                det_specific_key = f"{key}_{det_num}"
-                if det_specific_key in global_cfg_timings:
-                    val = global_cfg_timings[det_specific_key]
-                
-                # Priority 2: Global config applied to all detectors (e.g., "t0")
-                elif key in global_cfg_timings:
-                    val = global_cfg_timings[key]
-                
-                # Priority 3: ROOT Metadata (Use run_idx, not i)
-                elif key in raw_file_timings.get(det_num, {}).get(run_idx, {}):
-                    val = raw_file_timings[det_num][run_idx][key]
-                
-                # Priority 4: Fallback defaults
-                else:
-                    val = default_val
-                
-                resolved_timings[det_num][i][key] = val
+    resolved_timings = resolve_all_timings(data_files, config, raw_file_timings)
 
 
         
