@@ -70,6 +70,7 @@ def _extract_with_root(root_file_path, forward_name, backward_name):
 
             if "Name" in det_meta:
                 detectors_data[det_meta["Name"]] = det_meta
+        print(det_meta)
         exit()
         f.Close()
         return _build_response_dict(detectors_data, forward_name, backward_name)
