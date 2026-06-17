@@ -277,6 +277,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     for det_name, det_num in detectors_dict.items():
         resolved_timings[det_num] = {}
         for i, file in enumerate(data_files):
+            run_idx = i + 1  # <--- THIS IS THE CRITICAL FIX
             resolved_timings[det_num][i] = {}
             for key, default_val in defaults.items():
                 
@@ -289,9 +290,9 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                 elif key in global_cfg_timings:
                     val = global_cfg_timings[key]
                 
-                # Priority 3: ROOT Metadata
-                elif key in raw_file_timings.get(det_num, {}).get(i, {}):
-                    val = raw_file_timings[det_num][i][key]
+                # Priority 3: ROOT Metadata (Use run_idx, not i)
+                elif key in raw_file_timings.get(det_num, {}).get(run_idx, {}):
+                    val = raw_file_timings[det_num][run_idx][key]
                 
                 # Priority 4: Fallback defaults
                 else:
