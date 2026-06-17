@@ -76,15 +76,11 @@ class MsrGenerator:
             self.file_registry[p['name']] = []
             
         for i, file in enumerate(self.data_files):
-            # Matches digits (\d+) right before the trailing .root at the end of the string ($)
-            # 1. Strip off '.root' -> "deltatbc_tdc_gpd_2026_0364"
-            # 2. Split by '_' and grab the final item [-1]
-            run_number_str = file.split(".")[-2].split("_")[-1]
-            print(run_number_str)  # Output: "0364"
+            file_number_string = file.split(".")[-2].split("_")[-1]
             for p in self.config.get("file_params", []):
                 pos_err = p.get("pos_err", "none")
                 boundaries = " ".join(str(b) for b in p.get("boundaries", []))
-                self.msr_lines.append(f"        {self.param_counter} {p['name']}_File{run_number_str} {p['value']} {p['step']}       {pos_err}        {boundaries}")
+                self.msr_lines.append(f"        {self.param_counter} {p['name']}_File{file_number_string} {p['value']} {p['step']}       {pos_err}        {boundaries}")
                 self.file_registry[p['name']].append(self.param_counter)
                 self.param_counter += 1
 
@@ -97,11 +93,13 @@ class MsrGenerator:
             for i, file in enumerate(self.data_files):
                 self.msr_lines.append(separator_line)
                 self.msr_lines.append(f"# Run {i+1} local parameters")
+
+                file_number_string = file.split(".")[-2].split("_")[-1]
                 
                 for p in self.config.get("local_params", []):
                     pos_err = p.get("pos_err", "none")
                     boundaries = " ".join(str(b) for b in p.get("boundaries", []))
-                    param_name = f"{p['name']}_Run{i+1}"
+                    param_name = f"{p['name']}_File{file_number_string}_Run{i+1}"
                     self.msr_lines.append(f"        {self.param_counter} {param_name:27} {p['value']} {p['step']}       {pos_err}        {boundaries}")
                     self.local_registry[p['name']].append(self.param_counter)
                     self.param_counter += 1
@@ -116,8 +114,8 @@ class MsrGenerator:
                     for p in self.config.get("local_params", []):
                         pos_err = p.get("pos_err", "none")
                         boundaries = " ".join(str(b) for b in p.get("boundaries", []))
-                        
-                        param_name = f"{p['name']}_Run{i+1}_{det_name}"
+                        file_number_string = file.split(".")[-2].split("_")[-1]
+                        param_name = f"{p['name']}_File{file_number_string}_Run{i+1}_{det_name}"
                         self.msr_lines.append(f"        {self.param_counter} {param_name:27} {p['value']} {p['step']}       {pos_err}        {boundaries}")
                         self.local_registry[p['name']].append(self.param_counter)
                         self.param_counter += 1
