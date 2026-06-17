@@ -40,6 +40,7 @@ def build_timing_config(data_files, detectors_dict):
                 "data_range": [first_good, last_good]
             }
             print(timing_config)
+            exit()
     
     return timing_config
 
