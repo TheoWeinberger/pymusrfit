@@ -233,7 +233,7 @@ class MsrGenerator:
                     self.msr_lines.append(f"forward         {det_num}")
                     
                     # Lookup pre-resolved timings directly
-                    det_time = self.file_timings[det_num][i]
+                    det_time = self.file_timings[det_num][i+1]
                     
                     self.msr_lines.append(f"data            {det_time['data_range'][0]}    {det_time['data_range'][1]}")
                     self.msr_lines.append(f"t0              {det_time['t0']}")
