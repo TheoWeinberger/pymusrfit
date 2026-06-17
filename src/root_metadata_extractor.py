@@ -10,12 +10,8 @@ def extract_root_metadata(root_file_path, forward_name="Forw", backward_name="Ba
     # Try PyROOT first (highly reliable for custom C++ collections like TObjArray)
     try:
         import ROOT
-        print("hi")
-        exit()
         return _extract_with_root(root_file_path, forward_name, backward_name)
     except ImportError:
-        print("hi")
-        exit()
         pass
     
     # Fallback to Uproot
@@ -23,8 +19,6 @@ def extract_root_metadata(root_file_path, forward_name="Forw", backward_name="Ba
         import uproot
         return _extract_with_uproot(root_file_path, forward_name, backward_name)
     except ImportError:
-        print("hi")
-        exit()
         pass
     
     return {
@@ -35,6 +29,8 @@ def extract_root_metadata(root_file_path, forward_name="Forw", backward_name="Ba
 def _extract_with_root(root_file_path, forward_name, backward_name):
     import ROOT
     try:
+        print("hi")
+        exit()
         f = ROOT.TFile.Open(root_file_path, "READ")
         if not f or f.IsZombie():
             return {"success": False, "error": "Failed to open ROOT file."}
