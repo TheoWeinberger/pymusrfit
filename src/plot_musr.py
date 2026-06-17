@@ -148,8 +148,7 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
                     
         ax.plot(time_us[valid_theory], theory_asym[valid_theory], '-', color='red', linewidth=2, label='Reconstructed Theory')
         
-        ax.axhline(0, color='blue', linestyle='--', linewidth=1, alpha=0.5, label='A = 0')
-        
+ 
         ax.set_xlabel(r'Time ($\mu s$)', fontsize=10)
         ax.set_ylabel(r'Asymmetry $A(t)$', fontsize=10)
         
@@ -158,7 +157,6 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
             title_text += f'\n{variable_name}: {variable_value}'
             
         ax.set_title(title_text, fontsize=10)
-        ax.grid(True, alpha=0.3)
         ax.legend(fontsize=10, frameon=False)
         
         plt.tight_layout()
