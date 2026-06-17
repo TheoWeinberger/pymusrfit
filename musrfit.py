@@ -296,10 +296,6 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     
                 
     resolved_timings = resolve_all_timings(data_files, config, raw_file_timings)
-
-    print(resolved_timings)
-
-
         
     for custom_cfg in config.get("custom_definitions", []):
         CxxPluginGenerator.generate_and_compile(custom_cfg)
