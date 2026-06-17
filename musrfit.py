@@ -83,18 +83,23 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
         name = p["Name"]
         
         # --- FIX: Case-insensitive, robust regex matching ---
-        # Matches: Param_Run1_forward, Param_run1, ParamRun1
-        match_run = re.search(r"^(.*?)_?[Rr]un(\d+)(?:_(.+))?$", name)
-        # Matches: Param_File1, Param_file1, ParamFile1
+        # Matches: Param_File0364_Run1_forward, Param_file0364_run1
+        match_run = re.search(r"^(.*?)_?[Ff]ile(\d+)_?[Rr]un(\d+)(?:_(.+))?$", name)
+        # Matches: Param_File0364, Param_file0364
         match_file = re.search(r"^(.*?)_?[Ff]ile(\d+)$", name)
         
         if match_run:
             base_param_name = match_run.group(1)
-            run_idx = int(match_run.group(2)) - 1
-            det_name = match_run.group(3) if match_run.group(3) else "Combined"
+            file_suffix = match_run.group(2)
+            run_idx = int(match_run.group(3)) - 1
+            det_name = match_run.group(4) if match_run.group(4) else "Combined"
             
-            # --- FIX: The "Run" number exactly matches the File index. Do not divide! ---
-            file_idx = run_idx
+            # --- FIX: Find the correct file index using the extracted file_suffix ---
+            file_idx = -1
+            for i, fname in enumerate(data_files):
+                if file_suffix in fname:
+                    file_idx = i
+                    break
             
             var_val = "Unknown"
             if 0 <= file_idx < len(data_files):
@@ -127,7 +132,14 @@ def export_msr_to_split_csvs(msr_filepath, data_files, config):
             
         elif match_file:
             base_param_name = match_file.group(1)
-            file_idx = int(match_file.group(2)) - 1
+            file_suffix = match_file.group(2)
+            
+            # --- FIX: Find the correct file index using the extracted file_suffix ---
+            file_idx = -1
+            for i, fname in enumerate(data_files):
+                if file_suffix in fname:
+                    file_idx = i
+                    break
             
             var_val = "Unknown"
             if 0 <= file_idx < len(data_files):
