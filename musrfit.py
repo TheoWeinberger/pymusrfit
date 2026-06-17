@@ -14,7 +14,7 @@ if SCRIPT_DIR not in sys.path:
 
 from src.cxx_plugin_generator import CxxPluginGenerator
 from src.msr_generator import MsrGenerator
-from src.root_metadata_extractor import extract_root_metadata
+from src.root_metadata_extractor import build_timing_config
 from src.plot_musr import plot_musrfit_data, plot_parameters_vs_variable, plot_reconstructed_asymmetry
 
 def cleanup_previous_runs():
@@ -254,26 +254,56 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
         print(f"[!] Info: No matching data collections found or retained using '{target_extension}' in current directory.")
         return
     
-    if "timing" in config and config["timing"]:
-        print(f">> Honoring timing constraints directly from '{config_file}' configuration.")
-        for scope in ["forward", "backward"]:
-            if f"bkg_range_{scope}" not in config["timing"]:
-                config["timing"][f"bkg_range_{scope}"] = config["timing"].get("bkg_range", [0, 0])
-            if f"data_range_{scope}" not in config["timing"]:
-                config["timing"][f"data_range_{scope}"] = config["timing"].get("data_range", [0, 0])
-    else:
-        print(f">> Timing block missing or empty in configuration. Falling back to metadata extraction...")
-        metadata = extract_root_metadata(data_files[0])
-        if metadata.get("success"):
-            config["timing"] = metadata
-        else:
-            print(f"   [!] Error: Timing could not be determined. Check your configuration file layout.")
-            return
+    # -------------------------------------------------------------------------
+    # NEW TIMING LOGIC: Pre-resolve all timings before passing to generator
+    # -------------------------------------------------------------------------
+    print(">> Extracting timing metadata from ROOT files...")
+    
+    # 1. Fetch raw metadata from ROOT files
+    raw_file_timings = build_timing_config(data_files, config.get("detectors", {}))
+    
+    # 2. Build the fully resolved timing dictionary (Priority: Config > ROOT > Default)
+    resolved_timings = {}
+    global_cfg_timings = config.get("timing", {})
+    detectors_dict = config.get("detectors", {})
+    
+    defaults = {
+        "t0": 1600.0,
+        "bkg_range": [20, 1400],
+        "data_range": [1600, 100000]
+    }
+
+    for det_name, det_num in detectors_dict.items():
+        resolved_timings[det_num] = {}
+        for i, file in enumerate(data_files):
+            resolved_timings[det_num][i] = {}
+            for key, default_val in defaults.items():
+                
+                # Priority 1: Detector-specific config (e.g., "t0_5")
+                det_specific_key = f"{key}_{det_num}"
+                if det_specific_key in global_cfg_timings:
+                    val = global_cfg_timings[det_specific_key]
+                
+                # Priority 2: Global config applied to all detectors (e.g., "t0")
+                elif key in global_cfg_timings:
+                    val = global_cfg_timings[key]
+                
+                # Priority 3: ROOT Metadata
+                elif key in raw_file_timings.get(det_num, {}).get(i, {}):
+                    val = raw_file_timings[det_num][i][key]
+                
+                # Priority 4: Fallback defaults
+                else:
+                    val = default_val
+                
+                resolved_timings[det_num][i][key] = val
+
         
     for custom_cfg in config.get("custom_definitions", []):
         CxxPluginGenerator.generate_and_compile(custom_cfg)
         
-    generator = MsrGenerator(config, data_files)
+    print(f">> Synthesizing MSR script targeting {len(data_files)} ROOT files...")
+    generator = MsrGenerator(config, data_files, file_timings=resolved_timings)
     msr_text_blob = generator.generate_msr_string()
     
     with open(output_msr, 'w') as f:

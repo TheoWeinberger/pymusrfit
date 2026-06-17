@@ -156,25 +156,15 @@ class MsrGenerator:
         self.msr_lines.append("")
 
     def build_runs(self):
-        run_format = self.config.get("instrument", {}).get("format", "MUD")
-        facility = self.config.get("instrument", {}).get("facility", "TRIUMF (WISH)")
+        run_format = self.config.get("instrument", {}).get("format", "MUSR-ROOT")
+        facility = self.config.get("instrument", {}).get("facility", "GPD PSI")
         
         fittype = self.config.get("fittype", 2)
         detectors_dict = self.config.get("detectors", {})
         current_run_idx = 0
         
         for i, file in enumerate(self.data_files):
-            time_cfg = self.file_timings.get(file, self.config.get("timing", {}))
-            
-            if not time_cfg:
-                time_cfg = {
-                    "bkg_range": [320, 1440],
-                    "data_range": [1600, 160000],
-                    "t0": 1600
-                }
-            
             if fittype == 2:
-                # Standard Asymmetry Fit Block
                 fwd = detectors_dict.get("forward", 1)
                 bwd = detectors_dict.get("backward", 2)
                 
@@ -182,6 +172,7 @@ class MsrGenerator:
                 self.msr_lines.append("fittype         2         (asymmetry fit)")
                 self.msr_lines.append(f"alpha           {self.alpha_param_num}")
                 
+                # Map indices
                 map_indices = []
                 for var_name in self.map_token_sequence:
                     if var_name == self.asym_base_name:
@@ -194,43 +185,34 @@ class MsrGenerator:
                         map_indices.append(str(self.global_registry[var_name]))
                     else:
                         raise KeyError(f"Configuration Reference Mismatch: '{var_name}' is unmapped.")
-                        
+                
                 self.msr_lines.append("map             " + " ".join(map_indices))
                 self.msr_lines.append(f"forward         {fwd}")
                 self.msr_lines.append(f"backward        {bwd}")
                 
-                b_f_start, b_f_end = time_cfg.get('bkg_range_forward', time_cfg.get('bkg_range', [0,0]))
-                b_b_start, b_b_end = time_cfg.get('bkg_range_backward', time_cfg.get('bkg_range', [0,0]))
-                d_f_start, d_f_end = time_cfg.get('data_range_forward', time_cfg.get('data_range', [0,0]))
-                d_b_start, d_b_end = time_cfg.get('data_range_backward', time_cfg.get('data_range', [0,0]))
-                t0_f, t0_b = time_cfg.get('t0_forward', time_cfg.get('t0', 0)), time_cfg.get('t0_backward', time_cfg.get('t0', 0))
+                # Lookup pre-resolved timings directly
+                f_time = self.file_timings[fwd][i]
+                b_time = self.file_timings[bwd][i]
                 
-                self.msr_lines.append(f"background      {b_f_start}      {b_f_end}     {b_b_start}      {b_b_end}")
-                self.msr_lines.append(f"data            {d_f_start}    {d_f_end}  {d_b_start}    {d_b_end}")
-                self.msr_lines.append(f"t0              {t0_f}  {t0_b}")
+                self.msr_lines.append(f"background      {f_time['bkg_range'][0]}      {f_time['bkg_range'][1]}     {b_time['bkg_range'][0]}      {b_time['bkg_range'][1]}")
+                self.msr_lines.append(f"data            {f_time['data_range'][0]}    {f_time['data_range'][1]}  {b_time['data_range'][0]}    {b_time['data_range'][1]}")
+                self.msr_lines.append(f"t0              {f_time['t0']}  {b_time['t0']}")
                 
-                fit_range = self.config.get('fit_params', {}).get("fit_range", [0, 8])
-                packing = self.config.get('fit_params', {}).get("packing", 100)
-                self.msr_lines.append(f"fit             {fit_range[0]}       {fit_range[1]}")
-                self.msr_lines.append(f"packing         {packing}")
-                self.msr_lines.append("")
+                self._append_fit_params()
                 current_run_idx += 1
                 
             elif fittype == 0:
-                # Single Histogram Fit Block
-                for det_name, det_val in detectors_dict.items():
+                for det_name, det_num in detectors_dict.items():
                     self.msr_lines.append(f"RUN {file} {facility} {run_format} (name beamline institute data-file-format)")
                     self.msr_lines.append("fittype         0         (single histogram fit)")
                     
                     if "norm" in self.local_registry:
-                        norm_param_num = self.local_registry["norm"][current_run_idx]
-                        self.msr_lines.append(f"norm            {norm_param_num}")
+                        self.msr_lines.append(f"norm            {self.local_registry['norm'][current_run_idx]}")
                     else:
                         raise KeyError("Missing required local parameter 'norm' for fittype 0.")
                         
                     if "backgr" in self.local_registry:
-                        backgr_param_num = self.local_registry["backgr"][current_run_idx]
-                        self.msr_lines.append(f"backgr.fit      {backgr_param_num}")
+                        self.msr_lines.append(f"backgr.fit      {self.local_registry['backgr'][current_run_idx]}")
                     else:
                         raise KeyError("Missing required local parameter 'backgr' for fittype 0.")
                     
@@ -248,22 +230,25 @@ class MsrGenerator:
                             raise KeyError(f"Configuration Reference Mismatch: '{var_name}' is unmapped.")
                             
                     self.msr_lines.append("map             " + " ".join(map_indices))
-                    self.msr_lines.append(f"forward         {det_val}")
+                    self.msr_lines.append(f"forward         {det_num}")
                     
-                    data_start, data_end = time_cfg.get(f'data_range_{det_name}', time_cfg.get('data_range', [0,0]))
-                    t0_val = time_cfg.get(f't0_{det_name}', time_cfg.get('t0', 0))
+                    # Lookup pre-resolved timings directly
+                    det_time = self.file_timings[det_num][i]
                     
-                    self.msr_lines.append(f"data            {data_start}    {data_end}")
-                    self.msr_lines.append(f"t0              {t0_val}")
+                    self.msr_lines.append(f"data            {det_time['data_range'][0]}    {det_time['data_range'][1]}")
+                    self.msr_lines.append(f"t0              {det_time['t0']}")
                     
-                    fit_range = self.config.get('fit_params', {}).get("fit_range", [0, 8])
-                    packing = self.config.get('fit_params', {}).get("packing", 100)
-                    self.msr_lines.append(f"fit             {fit_range[0]}       {fit_range[1]}")
-                    self.msr_lines.append(f"packing         {packing}")
-                    self.msr_lines.append("")
+                    self._append_fit_params()
                     current_run_idx += 1
                     
         self.total_run_count = current_run_idx
+
+    def _append_fit_params(self):
+        fit_range = self.config.get('fit_params', {}).get("fit_range", [0, 8])
+        packing = self.config.get('fit_params', {}).get("packing", 100)
+        self.msr_lines.append(f"fit             {fit_range[0]}       {fit_range[1]}")
+        self.msr_lines.append(f"packing         {packing}")
+        self.msr_lines.append("")
 
     def build_footer(self):
         self.msr_lines.append("COMMANDS")
