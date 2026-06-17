@@ -261,6 +261,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
     
     # 1. Fetch raw metadata from ROOT files
     raw_file_timings = build_timing_config(data_files, config.get("detectors", {}))
+    print(raw_file_timings)
     
     # 2. Build the fully resolved timing dictionary (Priority: Config > ROOT > Default)
     resolved_timings = {}
