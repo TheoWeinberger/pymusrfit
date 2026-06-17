@@ -43,7 +43,6 @@ def _extract_with_root(root_file_path, forward_name, backward_name):
 
         detectors_data = {}
 
-        print(detector_info)
 
         # Loop through each Detector TObjArray (Detector001, Detector002, etc.)
         for det_array in detector_info:
@@ -54,8 +53,9 @@ def _extract_with_root(root_file_path, forward_name, backward_name):
                 text = f"{obj.GetName()} {obj.GetTitle()}"
 
                 print(text)
+                print("-----")
 
-                
+
                 # Extract key metadata pairs using regex
                 name_match = re.search(r"Name:\s*([^\s\-]+)", text)
                 t0_match = re.search(r"Time Zero Bin:\s*([\d\.]+)", text)
