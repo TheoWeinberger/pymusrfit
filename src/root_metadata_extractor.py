@@ -29,8 +29,6 @@ def extract_root_metadata(root_file_path, forward_name="Forw", backward_name="Ba
 def _extract_with_root(root_file_path, forward_name, backward_name):
     import ROOT
     try:
-        print("hi")
-        exit()
         f = ROOT.TFile.Open(root_file_path, "READ")
         if not f or f.IsZombie():
             return {"success": False, "error": "Failed to open ROOT file."}
@@ -45,6 +43,8 @@ def _extract_with_root(root_file_path, forward_name, backward_name):
 
         detectors_data = {}
 
+        exit()
+
         # Loop through each Detector TObjArray (Detector001, Detector002, etc.)
         for det_array in detector_info:
             det_meta = {}
@@ -54,7 +54,7 @@ def _extract_with_root(root_file_path, forward_name, backward_name):
                 text = f"{obj.GetName()} {obj.GetTitle()}"
 
                 print(text)
-                exit()
+
                 
                 # Extract key metadata pairs using regex
                 name_match = re.search(r"Name:\s*([^\s\-]+)", text)
