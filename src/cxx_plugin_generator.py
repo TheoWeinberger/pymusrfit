@@ -111,7 +111,7 @@ clean:
         try:
             # We use 'cwd' to run make entirely from within the subdirectory context 
             subprocess.run(["make", "-f", makefile_filename, "clean"], cwd=output_dir, check=True, capture_output=True)
-            subprocess.run(["make", "-f", makefile_filename], cwd=output_dir, check=True)
+            subprocess.run(["make", "-f", makefile_filename], cwd=output_dir, check=True, capture_output=True)
             print(f"   -> Successfully linked custom shared library asset inside '{output_dir}/lib{library_name}.so'.\n")
         except subprocess.CalledProcessError as err:
             print(f"[!] Compilation tracking error inside Makefile compilation pass!")
