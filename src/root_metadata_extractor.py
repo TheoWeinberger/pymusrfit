@@ -29,9 +29,6 @@ def build_timing_config(data_files, detectors_dict):
             else:
                 det_data = file_meta["data"].get(det_num, {})
 
-            print(det_data)
-            exit()
-                
             t0 = det_data.get("t0", 1600.0)
             first_good = det_data.get("first_good", 1620)
             last_good = det_data.get("last_good", 102290)
@@ -42,7 +39,8 @@ def build_timing_config(data_files, detectors_dict):
                 "bkg_range": [20, int(0.9 * t0)],
                 "data_range": [first_good, last_good]
             }
-            
+            print(timing_config)
+    
     return timing_config
 
 def _extract_single_file(root_file_path):
