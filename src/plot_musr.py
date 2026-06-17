@@ -90,24 +90,24 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         theory_b_sub = theory_b_raw - bkg_b
 
         # --- RAW DENOMINATOR ---
-        denom_raw = N_f_raw + (alpha * N_b_raw)
-        valid = denom_raw != 0
+        denom = N_f_sub + (alpha * N_b_sub)
+        valid = denom != 0
         
         asymmetry = np.full_like(N_f_raw, np.nan, dtype=float)
         asymmetry_error = np.full_like(N_f_raw, np.nan, dtype=float)
         theory_asym = np.full_like(N_f_raw, np.nan, dtype=float)
         
         # 1. Calculate Asymmetry
-        asymmetry[valid] = (N_f_sub[valid] - (alpha * N_b_sub[valid])) / denom_raw[valid]
+        asymmetry[valid] = (N_f_sub[valid] - (N_b_sub[valid])) / denom[valid]
         
         # 2. EXACT Error Propagation (Including Background Errors)
-        denom_sq = denom_raw[valid] ** 2
+        denom_sq = denom[valid] ** 2
         
         # Partial derivatives squared
         dAdN_f_sq = ((2.0 * alpha * N_b_raw[valid] + bkg_f - alpha * bkg_b) / denom_sq) ** 2
         dAdN_b_sq = ((-2.0 * alpha * N_f_raw[valid] + alpha * bkg_f - (alpha**2) * bkg_b) / denom_sq) ** 2
-        dAdB_f_sq = (-1.0 / denom_raw[valid]) ** 2
-        dAdB_b_sq = (alpha / denom_raw[valid]) ** 2
+        dAdB_f_sq = (-1.0 / denom[valid]) ** 2
+        dAdB_b_sq = (alpha / denom[valid]) ** 2
         
         # Sum of variances
         var_A = (dAdN_f_sq * (sigma_N_f[valid] ** 2)) + \
@@ -118,7 +118,7 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         asymmetry_error[valid] = var_A
         
         # 3. Calculate Theory Asymmetry
-        theory_denom = theory_f_raw + (alpha * theory_b_raw)
+        theory_denom = theory_f_sub + (alpha * theory_b_sub)
         valid_theory = theory_denom != 0
         theory_asym[valid_theory] = (theory_f_sub[valid_theory] - (alpha * theory_b_sub[valid_theory])) / theory_denom[valid_theory]
 
