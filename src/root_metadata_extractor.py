@@ -39,8 +39,6 @@ def build_timing_config(data_files, detectors_dict):
                 "bkg_range": [20, int(0.9 * t0)],
                 "data_range": [first_good, last_good]
             }
-            print(timing_config)
-            exit()
     
     return timing_config
 
