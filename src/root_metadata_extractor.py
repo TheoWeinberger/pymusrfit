@@ -50,6 +50,9 @@ def _extract_with_root(root_file_path, forward_name, backward_name):
             for obj in det_array:
                 # Combine Name and Title to catch all text formats safely
                 text = f"{obj.GetName()} {obj.GetTitle()}"
+
+                print(text)
+                exit()
                 
                 # Extract key metadata pairs using regex
                 name_match = re.search(r"Name:\s*([^\s\-]+)", text)
@@ -93,8 +96,6 @@ def _extract_with_uproot(root_file_path, forward_name, backward_name):
                 # Handle uproot string listings inside object members safely
                 for member in getattr(det_array, "members", []):
                     text = str(member)
-                    print(text)
-                    exit()
                     
                     name_match = re.search(r"Name:\s*([^\s\-]+)", text)
                     t0_match = re.search(r"Time Zero Bin:\s*([\d\.]+)", text)
