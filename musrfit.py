@@ -283,7 +283,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
         dat_file_map = {}
         for f in all_dat_files:
             # Matches the number at the end of the filename before .dat
-            match = re.search(f"{base_name}_(\d+)\.dat$", f)
+            match = re.search(r"{}_(\d+)\.dat$".format(re.escape(base_name)), f)
             if match:
                 dat_id = int(match.group(1))
                 dat_file_map[dat_id] = f
