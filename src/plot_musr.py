@@ -199,7 +199,7 @@ def plot_parameters_vs_variable(params, var_name):
         y_vals = [pt[1] for pt in points]
         y_errs = [pt[2] for pt in points]
         
-        plt.figure(figsize=(5.5, 3.7))
+        plt.figure(figsize=(4.5, 5))
         plt.errorbar(x_vals, y_vals, yerr=y_errs, fmt='none',color='black', elinewidth=1.5, alpha=0.5, markersize=20)
         plt.plot(x_vals, y_vals, color='black', linewidth=1, alpha=0.2)
         plt.scatter(x_vals, y_vals, color='black', linewidth=1, label='Fit Result', alpha=0.8, s=20)
