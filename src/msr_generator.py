@@ -251,11 +251,13 @@ class MsrGenerator:
         self.msr_lines.append("")
 
     def build_footer(self):
+        commands = self.config.get("commands", {})
         self.msr_lines.append("COMMANDS")
         if self.config.get("fittype", 2) == 0:
             self.msr_lines.append("SCALE_N0_BKG TRUE")
         self.msr_lines.append("MINIMIZE")
-        #self.msr_lines.append("MINOS")
+        if commands.get("minos") == True:
+            self.msr_lines.append("MINOS")
         self.msr_lines.append("#HESSE")
         self.msr_lines.append("SAVE")
         self.msr_lines.append("")
