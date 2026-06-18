@@ -178,7 +178,10 @@ def plot_parameters_vs_variable(params, var_name):
             base = p.get("BaseName", p["Name"])
             try:
                 val_float = float(p["Value"])
-                err_float = float(p["Pos_Error"])
+                try:
+                    err_float = float(p["Pos_Error"])
+                except ValueError:
+                    err_float = abs(float(p["Step/Error"]))
                 var_float = float(v_val)
                 if base not in local_groups:
                     local_groups[base] = []
