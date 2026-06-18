@@ -198,7 +198,7 @@ def plot_parameters_vs_variable(params, var_name):
         
         plt.figure(figsize=(6, 5))
         plt.errorbar(x_vals, y_vals, yerr=y_errs, fmt='-', color='black', linewidth=1.5, elinewidth=1.5, alpha=0.5, markersize=8)
-        plt.scatter(x_vals, y_vals, color='black', linewidth=1, label='Fit Result', alpha=0.8, size=8)
+        plt.scatter(x_vals, y_vals, color='black', linewidth=1, label='Fit Result', alpha=0.8, s=8)
         plt.xlabel(var_name, fontsize=10)
         plt.ylabel(f"Solved Value ({base})", fontsize=10)
         plt.title(f"Parameter Dependency: {base} vs {var_name}", fontsize=10)
