@@ -1,4 +1,7 @@
 # msr_generator.py
+import re
+from datetime import datetime
+
 class MsrGenerator:
     """Manages string assembly formatting, variable registration, and non-positional parameter tracking."""
     def __init__(self, config_dict, data_files, file_timings=None):
@@ -15,6 +18,7 @@ class MsrGenerator:
         self.local_registry = {}   # Format: { "variable_name": [run1_idx, run2_idx, ...] }
         self.map_token_sequence = []
         self.param_counter = 1
+        self.map_counter = 1       # Unified tracking across theory and function blocks
 
     def build_parameters(self):
         self.msr_lines.append("FITPARAMETER")
@@ -50,7 +54,6 @@ class MsrGenerator:
         elif fittype == 0:
             # Detector-specific asymmetry constants for fittype 0
             for det_name, det_val in detectors_dict.items():
-                # Allow fallback checking stringified detector number ("1") or name ("forward")
                 det_asym = asym_cfg.get(str(det_val), asym_cfg.get(det_name, {}))
                 val = det_asym.get("value", asym_cfg.get("value", 0.0))
                 step = det_asym.get("step", asym_cfg.get("step", 0.0))
@@ -64,7 +67,7 @@ class MsrGenerator:
         
         # 3. Load and register remaining Global elements
         for p in self.config.get("global_params", []):
-            if p["name"] == self.asym_base_name: continue # Ignore if accidentally left in global_params
+            if p["name"] == self.asym_base_name: continue 
             pos_err = p.get("pos_err", "none")
             boundaries = " ".join(str(b) for b in p.get("boundaries", []))
             self.msr_lines.append(f"        {self.param_counter} {p['name']:27} {p['value']} {p['step']}       {pos_err}        {boundaries}")
@@ -76,14 +79,11 @@ class MsrGenerator:
             self.file_registry[p['name']] = []
             
         for i, file in enumerate(self.data_files):
-            # Extract the suffix (e.g., '0364' from '..._0364.root')
             suffix = file.replace(".root", "").split("_")[-1]
-            
             for p in self.config.get("file_params", []):
                 pos_err = p.get("pos_err", "none")
                 boundaries = " ".join(str(b) for b in p.get("boundaries", []))
                 
-                # New naming convention: variable_File{suffix}
                 param_name = f"{p['name']}_File{suffix}"
                 self.msr_lines.append(f"        {self.param_counter} {param_name:27} {p['value']} {p['step']}       {pos_err}        {boundaries}")
                 self.file_registry[p['name']].append(self.param_counter)
@@ -94,7 +94,6 @@ class MsrGenerator:
             self.local_registry[p['name']] = []
             
         if fittype == 2:
-            # Traditional flat index per run file for asymmetry fitting
             for i, file in enumerate(self.data_files):
                 suffix = file.replace(".root", "").split("_")[-1]
                 self.msr_lines.append(separator_line)
@@ -104,15 +103,13 @@ class MsrGenerator:
                     pos_err = p.get("pos_err", "none")
                     boundaries = " ".join(str(b) for b in p.get("boundaries", []))
                     
-                    # New naming convention: variable_File{suffix}_Run{j}
                     param_name = f"{p['name']}_File{suffix}_Run{i+1}"
                     self.msr_lines.append(f"        {self.param_counter} {param_name:27} {p['value']} {p['step']}       {pos_err}        {boundaries}")
                     self.local_registry[p['name']].append(self.param_counter)
                     self.param_counter += 1
                     
         elif fittype == 0:
-            # Expanded name architecture tracking both Run Number and Detector channel
-            run_idx = 1 # Tracks global 'j' index for the RUN blocks
+            run_idx = 1 
             for i, file in enumerate(self.data_files):
                 suffix = file.replace(".root", "").split("_")[-1]
                 self.msr_lines.append(separator_line)
@@ -123,7 +120,6 @@ class MsrGenerator:
                         pos_err = p.get("pos_err", "none")
                         boundaries = " ".join(str(b) for b in p.get("boundaries", []))
                         
-                        # New naming convention: variable_File{suffix}_Run{j}_{det_name}
                         param_name = f"{p['name']}_File{suffix}_Run{run_idx}_{det_name}"
                         self.msr_lines.append(f"        {self.param_counter} {param_name:27} {p['value']} {p['step']}       {pos_err}        {boundaries}")
                         self.local_registry[p['name']].append(self.param_counter)
@@ -135,7 +131,13 @@ class MsrGenerator:
     def build_theory(self):
         self.msr_lines.append("THEORY")
         custom_names = {cf["name"] for cf in self.config.get("custom_definitions", [])}
-        map_counter = 1
+        
+        # Identify defined functions to avoid turning them into map definitions
+        defined_functions = set()
+        for line in self.config.get("function_block", []):
+            parts = line.split()
+            if parts:
+                defined_functions.add(parts[0])
         
         for line in self.config.get("theory_block", []):
             parts = line.split()
@@ -143,14 +145,19 @@ class MsrGenerator:
             func_name = parts[0]
             param_tokens = parts[1:]
             
+            if func_name == "+":
+                self.msr_lines.append("+")
+                continue
+            
             line_maps = []
             for token in param_tokens:
-                try:
+                # Direct match: If the token is a function name, leave it unmapped
+                if token in defined_functions:
+                    line_maps.append(token)
+                else:
                     self.map_token_sequence.append(token)
-                    line_maps.append(f"map{map_counter}")
-                    map_counter += 1
-                except KeyError:
-                    line_maps.append(f"{token}")
+                    line_maps.append(f"map{self.map_counter}")
+                    self.map_counter += 1
 
             if func_name in custom_names:
                 self.msr_lines.append(f"userFcn  plugins/lib{func_name}Library  {func_name}  " + " ".join(line_maps))
@@ -160,19 +167,36 @@ class MsrGenerator:
 
     def build_functions(self):
         self.msr_lines.append("FUNCTIONS")
-        map_counter = 1
         
+        # Build set of words to ignore (standard math identifiers and function block labels)
+        ignore_words = {"sin", "cos", "tan", "exp", "log", "ln", "sqrt", "abs", "pow"}
         for line in self.config.get("function_block", []):
             parts = line.split()
-            if not parts: continue
-            func_name = parts[0]
-            param_tokens = parts[1:]
+            if parts:
+                ignore_words.add(parts[0])
+                
+        for line in self.config.get("function_block", []):
+            match = re.match(r"^(\s*)(\S+)\s+(.+)$", line)
+            if not match: continue
+            func_name = match.group(2)
+            expr = match.group(3)
             
-            line_maps = []
-            for token in param_tokens:
-                self.map_token_sequence.append(token)
-                line_maps.append(f"map{map_counter}")
-                map_counter += 1
+            def replace_token(m):
+                word = m.group(0)
+                if word.isdigit() or word in ignore_words:
+                    return word
+                
+                # Treat word as a variable that must be registered to map runs cleanly
+                self.map_token_sequence.append(word)
+                replacement = f"map{self.map_counter}"
+                self.map_counter += 1
+                return replacement
+
+            # Transform raw expression string variables (e.g. 'Asym*A1') into 'map1*map2'
+            resolved_expr = re.sub(r'[a-zA-Z_][a-zA-Z0-9_]*', replace_token, expr)
+            self.msr_lines.append(f"{func_name} = {resolved_expr}")
+            
+        self.msr_lines.append("")
 
     def build_runs(self):
         run_format = self.config.get("instrument", {}).get("format", "MUSR-ROOT")
@@ -183,6 +207,7 @@ class MsrGenerator:
         current_run_idx = 0
         
         for i, file in enumerate(self.data_files):
+            run_idx = i + 1
             if fittype == 2:
                 fwd = detectors_dict.get("forward", 1)
                 bwd = detectors_dict.get("backward", 2)
@@ -191,7 +216,6 @@ class MsrGenerator:
                 self.msr_lines.append("fittype         2         (asymmetry fit)")
                 self.msr_lines.append(f"alpha           {self.alpha_param_num}")
                 
-                # Map indices
                 map_indices = []
                 for var_name in self.map_token_sequence:
                     if var_name == self.asym_base_name:
@@ -209,9 +233,8 @@ class MsrGenerator:
                 self.msr_lines.append(f"forward         {fwd}")
                 self.msr_lines.append(f"backward        {bwd}")
                 
-                # Lookup pre-resolved timings directly
-                f_time = self.file_timings[fwd][i+1]
-                b_time = self.file_timings[bwd][i+1]
+                f_time = self.file_timings[fwd][run_idx]
+                b_time = self.file_timings[bwd][run_idx]
                 
                 self.msr_lines.append(f"background      {f_time['bkg_range'][0]}      {f_time['bkg_range'][1]}     {b_time['bkg_range'][0]}      {b_time['bkg_range'][1]}")
                 self.msr_lines.append(f"data            {f_time['data_range'][0]}    {f_time['data_range'][1]}  {b_time['data_range'][0]}    {b_time['data_range'][1]}")
@@ -251,8 +274,7 @@ class MsrGenerator:
                     self.msr_lines.append("map             " + " ".join(map_indices))
                     self.msr_lines.append(f"forward         {det_num}")
                     
-                    # Lookup pre-resolved timings directly
-                    det_time = self.file_timings[det_num][i+1]
+                    det_time = self.file_timings[det_num][run_idx]
                     
                     self.msr_lines.append(f"data            {det_time['data_range'][0]}    {det_time['data_range'][1]}")
                     self.msr_lines.append(f"t0              {det_time['t0']}")
@@ -317,9 +339,7 @@ class MsrGenerator:
             self.msr_lines.append("")
 
     def build_statistic(self):
-        from datetime import datetime
         stat_config = self.config.get("statistic", {})
-        
         timestamp = stat_config.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         chisq = stat_config.get("chisq", 0.0)
         ndf = stat_config.get("ndf", 0)
