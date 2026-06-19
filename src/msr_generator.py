@@ -166,7 +166,8 @@ class MsrGenerator:
         self.msr_lines.append("")
 
     def build_functions(self):
-        self.msr_lines.append("FUNCTIONS")
+        if "function_block" in self.config and self.config["function_block"] != {}:
+            self.msr_lines.append("FUNCTIONS")
         
         # Build set of words to ignore (standard math identifiers and function block labels)
         ignore_words = {"sin", "cos", "tan", "exp", "log", "ln", "sqrt", "abs", "pow"}
