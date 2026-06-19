@@ -145,15 +145,34 @@ class MsrGenerator:
             
             line_maps = []
             for token in param_tokens:
-                self.map_token_sequence.append(token)
-                line_maps.append(f"map{map_counter}")
-                map_counter += 1
-                
+                try:
+                    self.map_token_sequence.append(token)
+                    line_maps.append(f"map{map_counter}")
+                    map_counter += 1
+                except KeyError:
+                    line_maps.append(f"{token}")
+
             if func_name in custom_names:
                 self.msr_lines.append(f"userFcn  plugins/lib{func_name}Library  {func_name}  " + " ".join(line_maps))
             else:
                 self.msr_lines.append(f"{func_name}      " + " ".join(line_maps))
         self.msr_lines.append("")
+
+    def build_functions(self):
+        self.msr_lines.append("FUNCTIONS")
+        map_counter = 1
+        
+        for line in self.config.get("function_block", []):
+            parts = line.split()
+            if not parts: continue
+            func_name = parts[0]
+            param_tokens = parts[1:]
+            
+            line_maps = []
+            for token in param_tokens:
+                self.map_token_sequence.append(token)
+                line_maps.append(f"map{map_counter}")
+                map_counter += 1
 
     def build_runs(self):
         run_format = self.config.get("instrument", {}).get("format", "MUSR-ROOT")
@@ -323,6 +342,9 @@ class MsrGenerator:
         self.msr_lines.append(separator)
         
         self.build_theory()
+        self.msr_lines.append(separator)
+
+        self.build_functions()
         self.msr_lines.append(separator)
         
         self.build_runs()
