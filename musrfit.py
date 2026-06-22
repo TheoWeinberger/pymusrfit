@@ -470,7 +470,6 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                     val = det_asym.get("value", asym_cfg.get("value", 0.0))
                     val_max = max(abs(val_max), np.nanmax(abs(val)))
                 asym_scaling = np.divide(val_max, global_max) if global_max != 0 else 1.0
-                print(asym_scaling)
         
                 #####################################
                 #####################################
