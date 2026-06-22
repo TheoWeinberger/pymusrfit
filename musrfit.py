@@ -7,6 +7,7 @@ import csv
 import re
 import argparse
 import subprocess
+import numpy as np
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
@@ -15,7 +16,7 @@ if SCRIPT_DIR not in sys.path:
 from src.cxx_plugin_generator import CxxPluginGenerator
 from src.msr_generator import MsrGenerator
 from src.root_metadata_extractor import build_timing_config
-from src.plot_musr import plot_musrfit_data, plot_parameters_vs_variable, plot_reconstructed_asymmetry
+from src.plot_musr import plot_musrfit_data, plot_parameters_vs_variable, plot_reconstructed_asymmetry, calc_asymmetry
 
 def cleanup_previous_runs():
     """Removes previously generated data files to ensure a clean run environment."""
@@ -328,6 +329,22 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
             detectors_dict = config.get("detectors", {})
             detector_names = list(detectors_dict.keys())
             num_detectors = len(detector_names) if fittype == 0 else 1
+
+            if fittype == 2:
+                global_max = 0
+                for i, dat_file in enumerate(dat_files):
+                    data = np.loadtxt(dat_file, delimiter=',', comments='%')
+                    if data.size == 0:
+                        print(f"[!] Empty data in {dat_file}")
+                        return
+                    theory = data[:, 3]
+                    global_max = max(global_max, np.nanmax(theory))
+                asym_cfg = config.get("asymmetry", {})
+                val = asym_cfg.get("value", 0.0)
+                asym_scaling = np.divide(val, global_max) if global_max != 0 else 1.0
+            else:
+                asym_scaling = 1.0
+                    
             
             # --- STANDARD PLOTTING (N(t) or standard Asymmetry) ---
             for i, dat_file in enumerate(dat_files):
@@ -350,7 +367,8 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                     variable_name=var_name, 
                     variable_value=var_val, 
                     fittype=fittype, 
-                    detector_name=det_name
+                    detector_name=det_name,
+                    scaling=asym_scaling
                 )
 
             # --- NEW: ASYMMETRY RECONSTRUCTION (Single Histogram Mode Only) ---
@@ -407,6 +425,58 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                         print(f"   [!] Could not parse background values: {e}")
 
                 # 4. Process in pairs
+                global_max = 0
+                for file_idx, file_name in enumerate(data_files):
+                    f_idx = file_idx * num_detectors
+                    b_idx = file_idx * num_detectors + 1
+                    
+                    if b_idx < len(dat_files):
+                        dat_f = dat_files[f_idx]
+                        dat_b = dat_files[b_idx]
+                        
+                        var_val = None
+                        if mapping:
+                            for suffix, s_val in mapping.items():
+                                if suffix in file_name:
+                                    var_val = s_val
+                                    break
+                        
+                        alpha_val = alphas_by_file.get(file_idx, global_alpha)
+                        
+                        # Grab respective backgrounds and errors, defaulting to 0.0 if not found
+                        file_bkgs = bkg_data.get(file_name, {})
+                        b_f, err_b_f = file_bkgs.get("forward", (0.0, 0.0))
+                        b_b, err_b_b = file_bkgs.get("backward", (0.0, 0.0))
+                        
+                        _, _, _, theory_asym, _, valid_theory = calc_asymmetry(
+                            dat_f, dat_b, alpha=alpha_val, 
+                            bkg_f=b_f, bkg_b=b_b,
+                            err_bkg_f=err_b_f, err_bkg_b=err_b_b
+                        )
+
+                        # Update global max if necessary    
+                        global_max = max(global_max, np.nanmax(theory_asym[valid_theory]))
+                
+                #####################################
+                #####################################
+                #####################################
+                # Not sure this method is foolproof #
+                # Detector-specific asymmetry constants for fittype 0
+                val_max = 0.0  
+                for det_name, det_val in detectors_dict.items():
+                    asym_cfg = config.get("asymmetry", {})
+                    detectors_dict = config.get("detectors", {})
+                    det_asym = asym_cfg.get(str(det_val), asym_cfg.get(det_name, {}))
+                    val = det_asym.get("value", asym_cfg.get("value", 0.0))
+                    val_max = max(abs(val_max), np.nanmax(abs(val)))
+                asym_scaling = np.divide(val_max, global_max) if global_max != 0 else 1.0
+                print(asym_scaling)
+        
+                #####################################
+                #####################################
+                #####################################
+
+                # 5. Process in pairs to plot with scaling
                 for file_idx, file_name in enumerate(data_files):
                     f_idx = file_idx * num_detectors
                     b_idx = file_idx * num_detectors + 1
@@ -435,7 +505,7 @@ def run_orchestration_pipeline(config_file="config.json", output_msr="fit_model.
                             alpha=alpha_val, 
                             bkg_f=b_f, bkg_b=b_b,
                             err_bkg_f=err_b_f, err_bkg_b=err_b_b,
-                            variable_name=var_name, variable_value=var_val
+                            variable_name=var_name, variable_value=var_val, scaling=asym_scaling
                         )
 
 if __name__ == "__main__":

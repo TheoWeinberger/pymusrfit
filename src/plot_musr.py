@@ -1,40 +1,57 @@
 # plot_musr.py
 import os
 import re
+import numpy as np
 
-def plot_musrfit_data(dat_filepath, output_image, variable_name=None, variable_value=None, fittype=2, detector_name=None):
+def plot_musrfit_data(dat_filepath, output_image, variable_name=None, variable_value=None, fittype=2, detector_name=None, scaling=1.0):
     """Parses a musrfit ASCII dump file and generates a plot, optionally including an experimental variable header."""
     try:
         import matplotlib.pyplot as plt
-        import numpy as np
     except ImportError:
-        print("[!] Error: matplotlib and numpy are required for plotting. Install them via pip.")
+        print("[!] Error: matplotlib is required for plotting. Install it via pip.")
         return
 
     try:
+        # 1. Read the header lines dynamically
+        header_lines = []
+        with open(dat_filepath, 'r') as f:
+            for line in f:
+                if line.strip().startswith('%'):
+                    header_lines.append(line.strip())
+                else:
+                    break  # Stop reading once we hit actual data
+        header_string = '\n'.join(header_lines)
+
+        # 2. Load the data
         data = np.loadtxt(dat_filepath, delimiter=',', comments='%')
         if data.size == 0:
             print(f"[!] Empty data in {dat_filepath}")
             return
-            
+
+        # 3. Scale the columns (value, error, theory)
+        data[:, 1:4] *= scaling
+
+        # 4. Save back to the file preserving the header and format
+        # We use comments='' because the '%' is already inside our header_string
+        # fmt='%.7f' ensures standard decimal notation with up to 7 decimal places
+        np.savetxt(dat_filepath, data, delimiter=', ', header=header_string, comments='', fmt='%.7f')
+
+        # 5. Extract columns for plotting
         time = data[:, 0]
         value = data[:, 1]
         error = data[:, 2]
         theory = data[:, 3]
-        
+
+        # --- Plotting Code ---
         plt.figure(figsize=(6, 6))
-
         plt.tick_params('both', which='major', direction='in', length=5, width=1.2,
-                   bottom=True, top=True, left=True, right=True)
-
+                    bottom=True, top=True, left=True, right=True)
         plt.tick_params('both', which='minor', direction='in', length=3, width=1,
-                   bottom=True, top=True, left=True, right=True)
-        
+                    bottom=True, top=True, left=True, right=True)
+
         plt.errorbar(time, value, yerr=error, fmt='o', markersize=3, 
-                     color='black', alpha=0.5, label='Data', elinewidth=1)
-        
+                    color='black', alpha=0.5, label='Data', elinewidth=1)
         plt.plot(time, theory, '-', color='red', linewidth=2, label='Theory Fit')
-        
         plt.xlabel(r'Time ($\mu s$)', fontsize=10)
         
         # --- DYNAMIC Y-AXIS LABEL ---
@@ -59,65 +76,69 @@ def plot_musrfit_data(dat_filepath, output_image, variable_name=None, variable_v
     except Exception as e:
         print(f"[!] Failed to plot {dat_filepath}: {e}")
 
+def calc_asymmetry(dat_f, dat_b, alpha=1.0, bkg_f=0.0, bkg_b=0.0, err_bkg_f=0.0, err_bkg_b=0.0):
+    
+    # Load Forward Data
+    data_f = np.loadtxt(dat_f, delimiter=',', comments='%')
+    time_us = data_f[:, 0]
+    N_f_raw = data_f[:, 1]
+    sigma_N_f = data_f[:, 2]
+    theory_f_raw = data_f[:, 3]
 
-def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.0, bkg_b=0.0, err_bkg_f=0.0, err_bkg_b=0.0, variable_name=None, variable_value=None):
+    # Load Backward Data
+    data_b = np.loadtxt(dat_b, delimiter=',', comments='%')
+    N_b_raw = data_b[:, 1]
+    sigma_N_b = data_b[:, 2]
+    theory_b_raw = data_b[:, 3]
+
+    # --- SUBTRACT BACKGROUND (Numerator Only) ---
+    N_f_sub = N_f_raw - bkg_f
+    N_b_sub = N_b_raw - bkg_b
+    theory_f_sub = theory_f_raw - bkg_f
+    theory_b_sub = theory_b_raw - bkg_b
+
+    # --- RAW DENOMINATOR ---
+    denom = N_f_sub + (alpha * N_b_sub)
+    valid = denom != 0
+    
+    asymmetry = np.full_like(N_f_raw, np.nan, dtype=float)
+    asymmetry_error = np.full_like(N_f_raw, np.nan, dtype=float)
+    theory_asym = np.full_like(N_f_raw, np.nan, dtype=float)
+    
+    # 1. Calculate Asymmetry
+    asymmetry[valid] = (N_f_sub[valid] - (alpha*N_b_sub[valid])) / denom[valid]
+    
+    # 2. EXACT Error Propagation (Including Background Errors)
+    denom_sq = denom[valid] ** 2
+    
+    # Partial derivatives squared
+    fa2b_sqrt = np.sqrt(abs(N_f_sub[valid]) + (alpha**2) * abs(N_b_sub[valid]))
+    a21_sqrt = np.sqrt(1+asymmetry[valid]**2)
+    fab = (abs(N_f_sub[valid]) + alpha * abs(N_b_sub[valid]))
+
+    valid_err = fab != 0
+            
+    asymmetry_error[valid_err] = (fa2b_sqrt*a21_sqrt / fab)**2
+    
+    # 3. Calculate Theory Asymmetry
+    theory_denom = theory_f_sub + (alpha * theory_b_sub)
+    valid_theory = theory_denom != 0
+    theory_asym[valid_theory] = (theory_f_sub[valid_theory] - (alpha * theory_b_sub[valid_theory])) / theory_denom[valid_theory]
+
+    return time_us, asymmetry, asymmetry_error, theory_asym, valid, valid_theory 
+
+def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.0, bkg_b=0.0, err_bkg_f=0.0, err_bkg_b=0.0, variable_name=None, variable_value=None, scaling=1.0):
     """Calculates, plots, and exports the combined Asymmetry using exact analytical error propagation."""
     try:
         import matplotlib.pyplot as plt
-        import numpy as np
     except ImportError:
-        print("[!] Error: matplotlib and numpy are required for plotting.")
+        print("[!] Error: matplotlib is required for plotting.")
         return
 
     try:
-        # Load Forward Data
-        data_f = np.loadtxt(dat_f, delimiter=',', comments='%')
-        time_us = data_f[:, 0]
-        N_f_raw = data_f[:, 1]
-        sigma_N_f = data_f[:, 2]
-        theory_f_raw = data_f[:, 3]
-
-        # Load Backward Data
-        data_b = np.loadtxt(dat_b, delimiter=',', comments='%')
-        N_b_raw = data_b[:, 1]
-        sigma_N_b = data_b[:, 2]
-        theory_b_raw = data_b[:, 3]
-
-        # --- SUBTRACT BACKGROUND (Numerator Only) ---
-        N_f_sub = N_f_raw - bkg_f
-        N_b_sub = N_b_raw - bkg_b
-        theory_f_sub = theory_f_raw - bkg_f
-        theory_b_sub = theory_b_raw - bkg_b
-
-        # --- RAW DENOMINATOR ---
-        denom = N_f_sub + (alpha * N_b_sub)
-        valid = denom != 0
-        
-        asymmetry = np.full_like(N_f_raw, np.nan, dtype=float)
-        asymmetry_error = np.full_like(N_f_raw, np.nan, dtype=float)
-        theory_asym = np.full_like(N_f_raw, np.nan, dtype=float)
-        
-        # 1. Calculate Asymmetry
-        asymmetry[valid] = (N_f_sub[valid] - (alpha*N_b_sub[valid])) / denom[valid]
-        
-        # 2. EXACT Error Propagation (Including Background Errors)
-        denom_sq = denom[valid] ** 2
-        
-        # Partial derivatives squared
-        fa2b_sqrt = np.sqrt(abs(N_f_sub[valid]) + (alpha**2) * abs(N_b_sub[valid]))
-        a21_sqrt = np.sqrt(1+asymmetry[valid]**2)
-        fab = (abs(N_f_sub[valid]) + alpha * abs(N_b_sub[valid]))
-
-        valid_err = fab != 0
-
-        
-                
-        asymmetry_error[valid_err] = (fa2b_sqrt*a21_sqrt / fab)**2
-        
-        # 3. Calculate Theory Asymmetry
-        theory_denom = theory_f_sub + (alpha * theory_b_sub)
-        valid_theory = theory_denom != 0
-        theory_asym[valid_theory] = (theory_f_sub[valid_theory] - (alpha * theory_b_sub[valid_theory])) / theory_denom[valid_theory]
+        time_us, asymmetry, asymmetry_error, theory_asym, valid, valid_theory = calc_asymmetry(
+            dat_f, dat_b, alpha=alpha, bkg_f=bkg_f, bkg_b=bkg_b, err_bkg_f=err_bkg_f, err_bkg_b=err_bkg_b
+        )
 
         # --- EXPORT TO .DAT FILE ---
         output_dat = output_image.replace('.pdf', '.dat')
@@ -126,7 +147,7 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         with open(output_dat, 'w') as f:
             f.write(f"% number of data values = {valid_count}\n")
             f.write("% time (us), value, error, theory\n")
-            for t, v, e, th in zip(time_us[valid], asymmetry[valid], asymmetry_error[valid], theory_asym[valid]):
+            for t, v, e, th in zip(time_us[valid], asymmetry[valid]*scaling, asymmetry_error[valid]*scaling, theory_asym[valid]*scaling):
                 th_val = th if not np.isnan(th) else 0.0
                 f.write(f"{t:.5f}, {v:.6f}, {e:.6f}, {th_val:.6f}\n")
                 
@@ -140,10 +161,10 @@ def plot_reconstructed_asymmetry(dat_f, dat_b, output_image, alpha=1.0, bkg_f=0.
         
         valid_mask = ~np.isnan(asymmetry)
         
-        ax.errorbar(time_us[valid_mask], asymmetry[valid_mask], yerr=asymmetry_error[valid_mask], 
+        ax.errorbar(time_us[valid_mask], asymmetry[valid_mask]*scaling, yerr=asymmetry_error[valid_mask]*scaling, 
                     fmt='o', markersize=3, color='black', alpha=0.5, label='Reconstructed Data', elinewidth=1)
                     
-        ax.plot(time_us[valid_theory], theory_asym[valid_theory], '-', color='red', linewidth=2, label='Reconstructed Theory')
+        ax.plot(time_us[valid_theory], theory_asym[valid_theory]*scaling, '-', color='red', linewidth=2, label='Reconstructed Theory')
         
  
         ax.set_xlabel(r'Time ($\mu s$)', fontsize=10)
